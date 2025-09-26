@@ -1,0 +1,10 @@
+build
+nob
+nob.exe
+nob.exe.old
+nob.old
+.vscode
+*.spv
+cache.bin
+cache.png
+*.mp4
