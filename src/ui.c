@@ -124,10 +124,6 @@ static bool inited = false;
 
 static VkPipeline rectPipeline;
 static VkPipelineLayout rectPipelineLayout;
-static VkBuffer rectDrawBuffer;
-static VkDeviceMemory rectDrawMemory;
-static void* rectDrawMapped;
-static VkDescriptorSet rectDescriptorSet = {0};
 static VkDescriptorSetLayout rectDescriptorSetLayout = {0};
 
 static DrawCommands drawCommands = {0};
@@ -168,6 +164,7 @@ static bool ui_create_rect_descriptor_set_and_bind_buffer(VkDevice device, VkDes
 }
 
 static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+    //TODO use precompiled shaders
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
             "#version 450\n"
@@ -240,13 +237,6 @@ static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
         if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &rectDescriptorSetLayout) != VK_SUCCESS) return false;
     }
 
-    VkDeviceSize bufferSize = sizeof(RectDrawCommand)*MAX_RECT_COUNT;
-    if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&rectDrawBuffer,&rectDrawMemory)) return false;
-
-    if(vkMapMemory(device, rectDrawMemory, 0, bufferSize, 0, &rectDrawMapped) != VK_SUCCESS) return false;
-
-    if(!ui_create_rect_descriptor_set_and_bind_buffer(device, descriptorPool, &rectDescriptorSet, rectDrawBuffer)) return false;
-
     if(!vkCreateGraphicPipeline(
         vertexShader, fragmentShader,
         &rectPipeline, &rectPipelineLayout, outFormat,
@@ -258,11 +248,14 @@ static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
     return true;
 }
 
+static VkDescriptorPool uiDescriptorPool;
+static VkDevice uiDevice;
 bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     if(inited) return true;
 
-    //TODO use precompiled shaders
     if(!ui_init_rects(device, outFormat, descriptorPool)) return false;
+    uiDescriptorPool = descriptorPool;
+    uiDevice = device;
 
     inited = true;
     return true;
@@ -311,13 +304,44 @@ void ui_rect(float x, float y, float w, float h, uint32_t color){
     }));
 }
 
-size_t oldScreenWidth = 0;
-size_t oldScreenHeight = 0;
+// drawing
 
-static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, RectDrawCommands* rects){
+typedef struct{
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    void* mapped;
+    VkDescriptorSet descriptorSet;
+} UIRectBuffer;
+
+typedef struct{
+    UIRectBuffer* items;
+    size_t count;
+    size_t capacity;
+    size_t used;
+} UIRectBufferPool;
+
+UIRectBuffer* UIRectBufferPool_get_avaliable(UIRectBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
+    if(pool->used < pool->count) return &pool->items[pool->used++];
+    da_reserve(pool, pool->count + 1);
+    UIRectBuffer* out = &pool->items[pool->count++];
+
+    //initalization
+    VkDeviceSize bufferSize = sizeof(RectDrawCommand)*MAX_RECT_COUNT;
+    if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&out->buffer,&out->memory)) return false;
+    if(vkMapMemory(device, out->memory, 0, bufferSize, 0, &out->mapped) != VK_SUCCESS) return false;
+    if(!ui_create_rect_descriptor_set_and_bind_buffer(device, descriptorPool, &out->descriptorSet, out->buffer)) return false;
+
+    return out;
+}
+
+void UIRectBufferPool_reset(UIRectBufferPool* pool){
+    pool->used = 0;
+}
+
+static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, void* mapped, VkDescriptorSet descriptorSet, RectDrawCommands* rects){
     assert(rects->count <= MAX_RECT_COUNT);
 
-    memcpy(rectDrawMapped, rects->items, rects->count*sizeof(rects->items[0]));
+    memcpy(mapped, rects->items, rects->count*sizeof(rects->items[0]));
 
     vkCmdBeginRenderingEX(cmd,
         .colorAttachment = colorAttachment,
@@ -338,13 +362,16 @@ static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screen
     });
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, rectPipeline);
-    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rectPipelineLayout,0,1,&rectDescriptorSet,0,NULL);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rectPipelineLayout,0,1,&descriptorSet,0,NULL);
     vkCmdPushConstants(cmd, rectPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants), &pushConstants);
     vkCmdDraw(cmd, 6, rects->count, 0, 0);
     vkCmdEndRendering(cmd);
 }
 
 static RectDrawCommands tempRectDrawCommands = {0};
+static UIRectBufferPool tempUIRectBufferPool = {0};
+size_t oldScreenWidth = 0;
+size_t oldScreenHeight = 0;
 
 void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment){
     if (drawCommands.count == 0) return;
@@ -365,6 +392,7 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
     size_t index = 0;
     tempRectDrawCommands.count = 0;
+    UIRectBufferPool_reset(&tempUIRectBufferPool);
 
     while (index < drawCommands.count) {
         UiDrawCmdType type = UI_DRAW_CMD_NONE;
@@ -384,8 +412,8 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
         }
 
         if (type == UI_DRAW_CMD_RECT) {
-            //TODO: need to unhardcode descriptor set (meaning buffer that is used inside) the best way is to have some sort of descriptor set buffers pool or smth like that
-            ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, &tempRectDrawCommands);
+            UIRectBuffer* buff = UIRectBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
+            ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, buff->mapped,buff->descriptorSet, &tempRectDrawCommands);
             tempRectDrawCommands.count = 0;
         }
     }
