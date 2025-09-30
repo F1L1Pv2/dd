@@ -109,7 +109,13 @@ int main(){
             0
         );
 
-        ui_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 - 100,200,200, 0xFFFFFFFF);
+        ui_rect(swapchainExtent.width/2 - sin(time) * 200 - 100,swapchainExtent.height/2 - 100,200,200, 0xFFFF0000);
+
+        ui_rect(swapchainExtent.width/2 - 100,swapchainExtent.height/2 - sin(time) * 200 - 100,200,200, 0xFF00FF00);
+
+        ui_rect(swapchainExtent.width/2 + cos(time) * 200 - 100,swapchainExtent.height/2 + sin(time) * 200 - 100,200,200, 0xFF0000FF);
+
+        ui_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
 
         ui_end();
 

@@ -45,18 +45,6 @@ typedef struct{
     float w;
 } vec4;
 
-typedef struct{
-    vec2 position;
-    vec2 scale;
-    vec4 albedo;
-} SpriteDrawCommand;
-
-typedef struct{
-    SpriteDrawCommand* items;
-    size_t count;
-    size_t capacity;
-} SpriteDrawCommands;
-
 typedef struct {
     float v[16];
 } mat4;
@@ -95,6 +83,39 @@ mat4 mat4mul(mat4 *a, mat4 *b) {
     return result;
 }
 
+// --------------------------- actual ui stuff -------------------------------------
+
+typedef struct{
+    vec2 position;
+    vec2 scale;
+    vec4 albedo;
+} RectDrawCommand;
+
+typedef struct{
+    RectDrawCommand* items;
+    size_t count;
+    size_t capacity;
+} RectDrawCommands;
+
+typedef enum {
+    UI_DRAW_CMD_NONE = 0,
+    UI_DRAW_CMD_RECT,
+    UI_DRAW_CMDS_COUNT,
+} UiDrawCmdType;
+
+typedef struct{
+    UiDrawCmdType type;
+    union{
+        RectDrawCommand rect;
+    } as;
+} DrawCommand;
+
+typedef struct{
+    DrawCommand* items;
+    size_t count;
+    size_t capacity;
+} DrawCommands;
+
 typedef struct{
     mat4 projView;
 } PushConstants;
@@ -103,32 +124,30 @@ static bool inited = false;
 
 static VkPipeline rectPipeline;
 static VkPipelineLayout rectPipelineLayout;
-static VkBuffer spriteDrawBuffer;
-static VkDeviceMemory spriteDrawMemory;
-static void* spriteDrawMapped;
-static SpriteDrawCommands spriteDrawCommands = {0};
+static VkBuffer rectDrawBuffer;
+static VkDeviceMemory rectDrawMemory;
+static void* rectDrawMapped;
 static VkDescriptorSet rectDescriptorSet = {0};
 static VkDescriptorSetLayout rectDescriptorSetLayout = {0};
 
-#define MAX_SPRITE_COUNT 128
+static DrawCommands drawCommands = {0};
+
+#define MAX_RECT_COUNT 128
 static PushConstants pushConstants;
 
-bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
-    if(inited) return true;
-
-    //TODO use precompiled shaders
+static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
             "#version 450\n"
             "#extension GL_EXT_scalar_block_layout : require\n"
             "#extension GL_EXT_nonuniform_qualifier : require\n"
-            "struct SpriteDrawCommand {\n"
+            "struct RectDrawCommand {\n"
             "    vec2 position;\n"
             "    vec2 scale;\n"
             "    vec4 albedo;\n"
             "};\n"
-            "layout(set = 0, binding = 0, scalar) readonly buffer SpriteDrawBuffer {\n"
-            "    SpriteDrawCommand commands[];\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer RectDrawBuffer {\n"
+            "    RectDrawCommand commands[];\n"
             "};\n"
             "layout(push_constant) uniform Constants {\n"
             "    mat4 projView;\n"
@@ -149,21 +168,20 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
             "    InstanceIndex = gl_InstanceIndex;\n"
             "}\n";
 
-
-        if(!compileShader(vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return 1;
+        if(!compileShader(vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return false;
 
     VkShaderModule fragmentShader;
     const char* fragmentShaderSrc =
             "#version 450\n"
             "#extension GL_EXT_scalar_block_layout : require\n"
             "#extension GL_EXT_nonuniform_qualifier : require\n"
-            "struct SpriteDrawCommand {\n"
+            "struct RectDrawCommand {\n"
             "    vec2 position;\n"
             "    vec2 scale;\n"
             "    vec4 albedo;\n"
             "};\n"
-            "layout(set = 0, binding = 0, scalar) readonly buffer SpriteDrawBuffer {\n"
-            "    SpriteDrawCommand commands[];\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer RectDrawBuffer {\n"
+            "    RectDrawCommand commands[];\n"
             "};\n"
             "layout(push_constant) uniform Constants {\n"
             "    mat4 projView;\n"
@@ -173,7 +191,7 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
             "void main() {\n"
             "    outColor = commands[InstanceIndex].albedo;\n"
             "}\n";
-        if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return 1;
+        if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return false;
 
     {
         VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
@@ -188,22 +206,24 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
         descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
 
         if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &rectDescriptorSetLayout) != VK_SUCCESS) return false;
+    }
 
+    {
         VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
         descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         descriptorSetAllocateInfo.descriptorPool = descriptorPool;
         descriptorSetAllocateInfo.descriptorSetCount = 1;
         descriptorSetAllocateInfo.pSetLayouts = &rectDescriptorSetLayout;
-
+    
         vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &rectDescriptorSet);
     }
 
-    VkDeviceSize bufferSize = sizeof(spriteDrawCommands.items[0])*MAX_SPRITE_COUNT;
-    if(!createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&spriteDrawBuffer,&spriteDrawMemory)) return false;
+    VkDeviceSize bufferSize = sizeof(RectDrawCommand)*MAX_RECT_COUNT;
+    if(!createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&rectDrawBuffer,&rectDrawMemory)) return false;
 
     {
         VkDescriptorBufferInfo descriptorBufferInfo = {
-            .buffer = spriteDrawBuffer,
+            .buffer = rectDrawBuffer,
             .offset = 0,
             .range = bufferSize
         };
@@ -221,7 +241,7 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
     }
 
-    if(vkMapMemory(device, spriteDrawMemory, 0, bufferSize, 0, &spriteDrawMapped) != VK_SUCCESS) return false;
+    if(vkMapMemory(device, rectDrawMemory, 0, bufferSize, 0, &rectDrawMapped) != VK_SUCCESS) return false;
 
     if(!createGraphicPipeline(
         vertexShader, fragmentShader,
@@ -230,6 +250,15 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &rectDescriptorSetLayout,
     )) return false;
+
+    return true;
+}
+
+bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+    if(inited) return true;
+
+    //TODO use precompiled shaders
+    if(!ui_init_rects(device, outFormat, descriptorPool)) return false;
 
     inited = true;
     return true;
@@ -252,7 +281,7 @@ void ui_begin(
 
     char* lastTextKey // used for typing in text boxes
 ){
-    spriteDrawCommands.count = 0;
+    drawCommands.count = 0;
     return;
 }
 
@@ -261,43 +290,30 @@ void ui_end(){
 }
 
 void ui_rect(float x, float y, float w, float h, uint32_t color){
-    if(spriteDrawCommands.count + 1 >= MAX_SPRITE_COUNT) return;
-    da_append(&spriteDrawCommands, ((SpriteDrawCommand){
-        .position.x = x,
-        .position.y = y,
-        .scale.x = w,
-        .scale.y = h,
-        .albedo = {
-            .x = ((float)(((color) >> 16) & 0xFF) / 255.0f),
-            .y = ((float)(((color) >>  8) & 0xFF) / 255.0f),
-            .z = ((float)(((color) >>  0) & 0xFF) / 255.0f),
-            .w = ((float)(((color) >> 24) & 0xFF) / 255.0f), 
-        }
+    da_append(&drawCommands, ((DrawCommand){
+        .type = UI_DRAW_CMD_RECT,
+        .as.rect = (RectDrawCommand){
+            .position.x = x,
+            .position.y = y,
+            .scale.x = w,
+            .scale.y = h,
+            .albedo = {
+                .x = ((float)(((color) >> 16) & 0xFF) / 255.0f),
+                .y = ((float)(((color) >>  8) & 0xFF) / 255.0f),
+                .z = ((float)(((color) >>  0) & 0xFF) / 255.0f),
+                .w = ((float)(((color) >> 24) & 0xFF) / 255.0f), 
+            }
+        },
     }));
 }
 
 size_t oldScreenWidth = 0;
 size_t oldScreenHeight = 0;
 
-void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment){
-    if(spriteDrawCommands.count == 0) return;
+static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, RectDrawCommands* rects){
+    assert(rects->count <= MAX_RECT_COUNT);
 
-    memcpy(spriteDrawMapped, spriteDrawCommands.items, spriteDrawCommands.count*sizeof(spriteDrawCommands.items[0]));
-
-    mat4 ortho = ortho2D(screenWidth, screenHeight);
-
-    if(oldScreenWidth != screenWidth || oldScreenHeight != screenHeight){
-        oldScreenWidth = screenWidth;
-        oldScreenHeight = screenHeight;
-        pushConstants = (PushConstants){
-            .projView = mat4mul(&ortho, &(mat4){
-                1,0,0,0,
-                0,1,0,0,
-                0,0,1,0,
-                -((float)screenWidth)/2,-((float)screenHeight)/2,0,1,
-            }),
-        };
-    }
+    memcpy(rectDrawMapped, rects->items, rects->count*sizeof(rects->items[0]));
 
     vkCmdBeginRenderingEX(cmd,
         .colorAttachment = colorAttachment,
@@ -320,6 +336,53 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, rectPipeline);
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rectPipelineLayout,0,1,&rectDescriptorSet,0,NULL);
     vkCmdPushConstants(cmd, rectPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants), &pushConstants);
-    vkCmdDraw(cmd, 6, spriteDrawCommands.count, 0, 0);
+    vkCmdDraw(cmd, 6, rects->count, 0, 0);
     vkCmdEndRendering(cmd);
+}
+
+static RectDrawCommands tempRectDrawCommands = {0};
+
+void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment){
+    if (drawCommands.count == 0) return;
+
+    if (oldScreenWidth != screenWidth || oldScreenHeight != screenHeight) {
+        mat4 ortho = ortho2D(screenWidth, screenHeight);
+        oldScreenWidth = screenWidth;
+        oldScreenHeight = screenHeight;
+        pushConstants = (PushConstants){
+            .projView = mat4mul(&ortho, &(mat4){
+                1,0,0,0,
+                0,1,0,0,
+                0,0,1,0,
+                -((float)screenWidth)/2, -((float)screenHeight)/2, 0, 1,
+            }),
+        };
+    }
+
+    size_t index = 0;
+    tempRectDrawCommands.count = 0;
+
+    while (index < drawCommands.count) {
+        UiDrawCmdType type = UI_DRAW_CMD_NONE;
+
+        while (index < drawCommands.count) {
+            DrawCommand* cur = &drawCommands.items[index];
+            if (type == UI_DRAW_CMD_NONE) type = cur->type;
+            else if (type != cur->type) break;
+
+            if (type == UI_DRAW_CMD_RECT) da_append(&tempRectDrawCommands, cur->as.rect);
+            else if(type == UI_DRAW_CMD_NONE) assert(false && "Unreachable NONE");
+            else if(type == UI_DRAW_CMDS_COUNT) assert(false && "Unreachable COUNT");
+            else assert(false && "Unreachable TYPE");
+
+            index++;
+            if (type == UI_DRAW_CMD_RECT && tempRectDrawCommands.count >= MAX_RECT_COUNT) break;
+        }
+
+        if (type == UI_DRAW_CMD_RECT) {
+            //TODO: need to unhardcode descriptor set (meaning buffer that is used inside) the best way is to have some sort of descriptor set buffers pool or smth like that
+            ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, &tempRectDrawCommands);
+            tempRectDrawCommands.count = 0;
+        }
+    }
 }
