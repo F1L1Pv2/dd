@@ -6,11 +6,10 @@
 
 #include "vulkan/vulkan.h"
 
-#include "vulkan_globals.h"
 #include "vulkan_images.h"
-#include "vulkan_helpers.h"
+#include "vulkan_internal.h"
 
-bool createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* out){
+bool vkCreateImageViewEX(VkDevice device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* out){
     VkImageViewCreateInfo imageViewCreateInfo = {0};
     imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     imageViewCreateInfo.pNext = NULL;
@@ -34,7 +33,7 @@ bool createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFl
     return true;
 }
 
-bool createImage(size_t width, size_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryProperties, VkImage* image, VkDeviceMemory* imageMemory){
+bool vkCreateImageEX(VkDevice device, size_t width, size_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags memoryProperties, VkImage* image, VkDeviceMemory* imageMemory){
     VkImageCreateInfo imageCreateInfo = {0};
     imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -80,7 +79,7 @@ bool createImage(size_t width, size_t height, VkFormat format, VkImageTiling til
     return true;
 }
 
-size_t getImageStride(VkImage image){
+size_t vkGetImageStride(VkDevice device, VkImage image){
     VkImageSubresource subresource = {
         .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
         .mipLevel = 0,

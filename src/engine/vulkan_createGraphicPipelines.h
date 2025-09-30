@@ -21,9 +21,9 @@ typedef struct {
     VkFormat outColorFormat;
 } CreateGraphicsPipelineARGS;
 
-bool createGraphicPipeline_opts(CreateGraphicsPipelineARGS args);
+bool vkCreateGraphicPipeline_opts(CreateGraphicsPipelineARGS args);
 
-#define createGraphicPipeline(vertexShaderIn, fragmentShaderIn, pipelinePtrOut, pipelineLayoutPtrOut, outColorFormatIn, ...) createGraphicPipeline_opts((CreateGraphicsPipelineARGS){\
+#define vkCreateGraphicPipeline(vertexShaderIn, fragmentShaderIn, pipelinePtrOut, pipelineLayoutPtrOut, outColorFormatIn, ...) vkCreateGraphicPipeline_opts((CreateGraphicsPipelineARGS){\
     .vertexShader = vertexShaderIn,\
     .fragmentShader = fragmentShaderIn,\
     .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,\

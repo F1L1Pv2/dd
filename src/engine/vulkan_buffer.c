@@ -4,11 +4,10 @@
 
 #include "vulkan/vulkan.h"
 
-#include "vulkan_globals.h"
 #include "vulkan_buffer.h"
-#include "vulkan_helpers.h"
+#include "vulkan_internal.h"
 
-bool createBuffer(VkBufferUsageFlagBits usage, VkMemoryPropertyFlagBits memoryProperties, VkDeviceSize size, VkBuffer* outBuff, VkDeviceMemory* outMemory){
+bool vkCreateBufferEX(VkDevice device, VkBufferUsageFlagBits usage, VkMemoryPropertyFlagBits memoryProperties, VkDeviceSize size, VkBuffer* outBuff, VkDeviceMemory* outMemory){
     VkResult result;
     
     VkBufferCreateInfo vertexBufferCreateInfo = {0};
@@ -49,19 +48,6 @@ bool createBuffer(VkBufferUsageFlagBits usage, VkMemoryPropertyFlagBits memoryPr
         printf("ERROR: Couldn't bind memory to a buffer\n");
         return false;
     }
-
-    return true;
-}
-
-bool transferDataToMemory(VkDeviceMemory memory, void* data, size_t offset, size_t size){
-    void *mapped;
-    VkResult result = vkMapMemory(device, memory, offset, size, 0, &mapped);
-    if(result != VK_SUCCESS){
-        printf("ERROR: Couldn't map memory\n");
-        return false;
-    }
-    memcpy(mapped,data,size);
-    vkUnmapMemory(device, memory);
 
     return true;
 }

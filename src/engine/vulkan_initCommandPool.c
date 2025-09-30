@@ -8,7 +8,7 @@
 
 #include "vulkan_globals.h"
 #include "vulkan_initCommandPool.h"
-#include "vulkan_helpers.h"
+#include "vulkan_internal.h"
 
 VkCommandPool commandPool;
 

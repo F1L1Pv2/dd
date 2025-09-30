@@ -4,10 +4,8 @@
 #include <stdbool.h>
 
 #include "vulkan/vulkan.h"
-int getNeededQueueFamilyIndex(VkQueueFlags flags);
-bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index);
-VkCommandBuffer beginSingleTimeCommands();
-void endSingleTimeCommands(VkCommandBuffer commandBuffer);
+VkCommandBuffer vkCmdBeginSingleTime();
+void vkCmdEndSingleTime(VkCommandBuffer commandBuffer);
 void vkCmdTransitionImage(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage);
 
 typedef struct {

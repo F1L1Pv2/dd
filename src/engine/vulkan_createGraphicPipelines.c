@@ -10,7 +10,7 @@
 #include "vulkan_createGraphicPipelines.h"
 
 
-bool createGraphicPipeline_opts(CreateGraphicsPipelineARGS args){
+bool vkCreateGraphicPipeline_opts(CreateGraphicsPipelineARGS args){
     VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {0};
     pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutCreateInfo.pNext = NULL;

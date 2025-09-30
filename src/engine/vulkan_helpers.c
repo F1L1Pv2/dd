@@ -7,26 +7,7 @@
 #include "vulkan_globals.h"
 #include "vulkan_helpers.h"
 
-int getNeededQueueFamilyIndex(VkQueueFlags flags){
-    for(int i = 0; i < multipleQueueFamilyProperties.count; i++){
-        if(multipleQueueFamilyProperties.items[i].queueFlags & flags){
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index) {
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            *index = i;
-            return true;
-        }
-    }
-    return false;
-}
-
-VkCommandBuffer beginSingleTimeCommands() {
+VkCommandBuffer vkCmdBeginSingleTime() {
     VkCommandBufferAllocateInfo allocInfo = {0};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -45,7 +26,7 @@ VkCommandBuffer beginSingleTimeCommands() {
     return commandBuffer;
 }
 
-void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+void vkCmdEndSingleTime(VkCommandBuffer commandBuffer) {
     vkEndCommandBuffer(commandBuffer);
 
     VkSubmitInfo submitInfo = {0};

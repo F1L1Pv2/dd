@@ -8,10 +8,9 @@
 #include "vulkan/vulkan.h"
 #include "shaderc/shaderc.h"
 
-#include "vulkan_globals.h"
 #include "vulkan_compileShader.h"
 
-bool compileShader(const char* inputText, shaderc_shader_kind shaderKind, VkShaderModule* outShader){
+bool vkCompileShader(VkDevice device, const char* inputText, shaderc_shader_kind shaderKind, VkShaderModule* outShader){
     shaderc_compiler_t compiler = shaderc_compiler_initialize();
 
     shaderc_compilation_result_t result = shaderc_compile_into_spv( compiler, inputText, strlen(inputText), shaderKind, "internalVert", "main", NULL);

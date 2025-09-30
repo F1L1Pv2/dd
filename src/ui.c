@@ -135,6 +135,38 @@ static DrawCommands drawCommands = {0};
 #define MAX_RECT_COUNT 128
 static PushConstants pushConstants;
 
+static bool ui_create_rect_descriptor_set_and_bind_buffer(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSet* descriptorSetOut, VkBuffer buffer){
+    VkResult result;
+    VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
+    descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+    descriptorSetAllocateInfo.descriptorSetCount = 1;
+    descriptorSetAllocateInfo.pSetLayouts = &rectDescriptorSetLayout;
+    
+    result = vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, descriptorSetOut);
+    if(result != VK_SUCCESS) return false;
+
+    VkDescriptorBufferInfo descriptorBufferInfo = {
+        .buffer = buffer,
+        .offset = 0,
+        .range = sizeof(RectDrawCommand)*MAX_RECT_COUNT,
+    };
+
+    VkWriteDescriptorSet writeDescriptorSet = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .dstSet = *descriptorSetOut,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .pBufferInfo = &descriptorBufferInfo
+    };
+        
+    vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
+
+    return true;
+}
+
 static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
@@ -168,7 +200,7 @@ static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
             "    InstanceIndex = gl_InstanceIndex;\n"
             "}\n";
 
-        if(!compileShader(vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return false;
+        if(!vkCompileShader(device, vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return false;
 
     VkShaderModule fragmentShader;
     const char* fragmentShaderSrc =
@@ -191,7 +223,7 @@ static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
             "void main() {\n"
             "    outColor = commands[InstanceIndex].albedo;\n"
             "}\n";
-        if(!compileShader(fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return false;
+        if(!vkCompileShader(device, fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return false;
 
     {
         VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
@@ -208,42 +240,14 @@ static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
         if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &rectDescriptorSetLayout) != VK_SUCCESS) return false;
     }
 
-    {
-        VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
-        descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        descriptorSetAllocateInfo.descriptorPool = descriptorPool;
-        descriptorSetAllocateInfo.descriptorSetCount = 1;
-        descriptorSetAllocateInfo.pSetLayouts = &rectDescriptorSetLayout;
-    
-        vkAllocateDescriptorSets(device,&descriptorSetAllocateInfo, &rectDescriptorSet);
-    }
-
     VkDeviceSize bufferSize = sizeof(RectDrawCommand)*MAX_RECT_COUNT;
-    if(!createBuffer(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&rectDrawBuffer,&rectDrawMemory)) return false;
-
-    {
-        VkDescriptorBufferInfo descriptorBufferInfo = {
-            .buffer = rectDrawBuffer,
-            .offset = 0,
-            .range = bufferSize
-        };
-
-        VkWriteDescriptorSet writeDescriptorSet = {
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .dstSet = rectDescriptorSet,
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .pBufferInfo = &descriptorBufferInfo
-        };
-        
-        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, NULL);
-    }
+    if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&rectDrawBuffer,&rectDrawMemory)) return false;
 
     if(vkMapMemory(device, rectDrawMemory, 0, bufferSize, 0, &rectDrawMapped) != VK_SUCCESS) return false;
 
-    if(!createGraphicPipeline(
+    if(!ui_create_rect_descriptor_set_and_bind_buffer(device, descriptorPool, &rectDescriptorSet, rectDrawBuffer)) return false;
+
+    if(!vkCreateGraphicPipeline(
         vertexShader, fragmentShader,
         &rectPipeline, &rectPipelineLayout, outFormat,
         .pushConstantsSize = sizeof(pushConstants),
