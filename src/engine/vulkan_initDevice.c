@@ -7,7 +7,7 @@
 #include "vulkan/vulkan.h"
 
 #include "vulkan_globals.h"
-#include "vulkan_getDevice.h"
+#include "vulkan_initDevice.h"
 
 VkDevice device;
 VkPhysicalDevice physicalDevice;
@@ -41,7 +41,7 @@ typedef struct{
     size_t capacity;
 }   MultipleVkQueuePriorities;
 
-bool getDevice(){
+bool initDevice(){
 
     VkPhysicalDevices physicalDevices = {0};
 
