@@ -84,6 +84,10 @@ mat4 mat4mul(mat4 *a, mat4 *b) {
 }
 
 // --------------------------- actual ui stuff -------------------------------------
+typedef struct{
+    vec2 offset;
+    vec2 size;
+} ScissorDrawCommand;
 
 typedef struct{
     vec2 position;
@@ -100,6 +104,7 @@ typedef struct{
 typedef enum {
     UI_DRAW_CMD_NONE = 0,
     UI_DRAW_CMD_RECT,
+    UI_DRAW_CMD_SCISSOR,
     UI_DRAW_CMDS_COUNT,
 } UiDrawCmdType;
 
@@ -107,6 +112,7 @@ typedef struct{
     UiDrawCmdType type;
     union{
         RectDrawCommand rect;
+        ScissorDrawCommand scissor;
     } as;
 } DrawCommand;
 
@@ -304,6 +310,18 @@ void ui_rect(float x, float y, float w, float h, uint32_t color){
     }));
 }
 
+void ui_scissor(float x, float y, float w, float h){
+    da_append(&drawCommands, ((DrawCommand){
+        .type = UI_DRAW_CMD_SCISSOR,
+        .as.scissor = (ScissorDrawCommand){
+            .offset.x = x,
+            .offset.y = y,
+            .size.x = w,
+            .size.y = h,
+        },
+    }));
+}
+
 // drawing
 
 typedef struct{
@@ -338,7 +356,7 @@ void UIRectBufferPool_reset(UIRectBufferPool* pool){
     pool->used = 0;
 }
 
-static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, void* mapped, VkDescriptorSet descriptorSet, RectDrawCommands* rects){
+static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, RectDrawCommands* rects){
     assert(rects->count <= MAX_RECT_COUNT);
 
     memcpy(mapped, rects->items, rects->count*sizeof(rects->items[0]));
@@ -356,10 +374,7 @@ static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screen
         .height = screenHeight
     });
         
-    vkCmdSetScissor(cmd, 0, 1, &(VkRect2D){
-        .extent.width = screenWidth,
-        .extent.height = screenHeight,
-    });
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, rectPipeline);
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rectPipelineLayout,0,1,&descriptorSet,0,NULL);
@@ -394,12 +409,39 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     tempRectDrawCommands.count = 0;
     UIRectBufferPool_reset(&tempUIRectBufferPool);
 
+    VkRect2D scissor_default = {
+        .offset.x = 0,
+        .offset.y = 0,
+        .extent.width = screenWidth,
+        .extent.height = screenHeight
+    };
+
+    VkRect2D scissor = scissor_default;
+    VkRect2D new_scissor = scissor;
+    bool scissor_changed = false;
+
     while (index < drawCommands.count) {
         UiDrawCmdType type = UI_DRAW_CMD_NONE;
 
         while (index < drawCommands.count) {
             DrawCommand* cur = &drawCommands.items[index];
-            if (type == UI_DRAW_CMD_NONE) type = cur->type;
+            if(cur->type == UI_DRAW_CMD_SCISSOR){
+                if(cur->as.scissor.size.x == 0 && cur->as.scissor.size.y == 0){
+                    new_scissor = scissor_default;
+                }else{
+                    new_scissor = (VkRect2D){
+                        .offset.x = cur->as.scissor.offset.x,
+                        .offset.y = cur->as.scissor.offset.y,
+                        .extent.width = cur->as.scissor.size.x,
+                        .extent.height = cur->as.scissor.size.y,
+                    };
+                }
+
+                scissor_changed = true;
+                index++;
+                break;
+            }
+            else if (type == UI_DRAW_CMD_NONE) type = cur->type;
             else if (type != cur->type) break;
 
             if (type == UI_DRAW_CMD_RECT) da_append(&tempRectDrawCommands, cur->as.rect);
@@ -411,10 +453,20 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
             if (type == UI_DRAW_CMD_RECT && tempRectDrawCommands.count >= MAX_RECT_COUNT) break;
         }
 
-        if (type == UI_DRAW_CMD_RECT) {
-            UIRectBuffer* buff = UIRectBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
-            ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, buff->mapped,buff->descriptorSet, &tempRectDrawCommands);
-            tempRectDrawCommands.count = 0;
+        if(!(scissor.extent.width == 0 || scissor.extent.height == 0)) {
+            //drawing
+            if (type == UI_DRAW_CMD_RECT) {
+                UIRectBuffer* buff = UIRectBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
+                ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, &tempRectDrawCommands);
+            }
+        }
+
+        //cleanup
+        if (type == UI_DRAW_CMD_RECT) tempRectDrawCommands.count = 0;
+        
+        if(scissor_changed){
+            scissor_changed = false;
+            scissor = new_scissor;
         }
     }
 }

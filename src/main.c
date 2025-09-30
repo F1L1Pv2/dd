@@ -85,6 +85,7 @@ int main(){
 
     uint64_t oldTime = platform_get_time();
     double time = 0;
+    double target_fps = 60.0;
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
@@ -115,11 +116,21 @@ int main(){
             0
         );
 
+        ui_scissor(0,0,swapchainExtent.width*(cos(time)/2+0.5), swapchainExtent.height*(sin(time)/2+0.5));
+        size_t w = swapchainExtent.height;
+        ui_rect(swapchainExtent.width/2 - w/2,swapchainExtent.height/2 - w/2,w,w, 0xFFFF00FF);
+
+        ui_scissor(0,swapchainExtent.height/2-swapchainExtent.height/4,swapchainExtent.width, swapchainExtent.height/2);
+
         ui_rect(swapchainExtent.width/2 - sin(time) * 200 - 100,swapchainExtent.height/2 - 100,200,200, 0xFFFF0000);
 
         ui_rect(swapchainExtent.width/2 - 100,swapchainExtent.height/2 - sin(time) * 200 - 100,200,200, 0xFF00FF00);
 
+        ui_scissor(0,0,swapchainExtent.width/2, swapchainExtent.height);
+
         ui_rect(swapchainExtent.width/2 + cos(time) * 200 - 100,swapchainExtent.height/2 + sin(time) * 200 - 100,200,200, 0xFF0000FF);
+
+        ui_scissor(swapchainExtent.width/2,0,swapchainExtent.width/2, swapchainExtent.height);
 
         ui_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
 
@@ -187,7 +198,11 @@ int main(){
             .pImageIndices = &imageIndex
         });
 
-        platform_sleep(1000/60);
+        Time = platform_get_time();
+
+        if(Time-oldTime < (size_t)(1.0/target_fps * 1000.0)){
+            platform_sleep(1.0f/target_fps - (double)(Time-oldTime) / 1000.0);
+        }
     }
 
     return 0;
