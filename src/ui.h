@@ -29,6 +29,10 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
 void ui_rect(float x, float y, float w, float h, uint32_t color);
 
+void ui_text(const char* text, float x, float y, float size, uint32_t color);
+
+float ui_text_measure(const char* text, float size);
+
 void ui_scissor(float x, float y, float w, float h);
 
 void ui_window(size_t x, size_t y, size_t width, size_t height, uint32_t background);

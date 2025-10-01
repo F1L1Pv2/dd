@@ -134,6 +134,14 @@ int main(){
 
         ui_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
 
+        ui_scissor(0,0,0,0);
+
+        {
+            const char* text = "Hello Baller!\nF1L1P Here!";
+            float size = swapchainExtent.height/20 * (sin(time)/2+0.5)*2; 
+            ui_text(text, swapchainExtent.width/2 - ui_text_measure(text, size)/2, swapchainExtent.height/2, size, 0xFFFFFFFF);
+        }
+
         ui_end();
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
