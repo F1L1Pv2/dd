@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "engine/vulkan_simple.h"
+#include "thirdparty/stb_image.h"
 
 #include "ui.h"
 #include <math.h>
@@ -90,11 +91,54 @@ int main(){
 
     if(!ui_init(device, swapchainImageFormat, descriptorPool)) return 1;
 
+    uint32_t image_id;
+    uint32_t image2_id;
+
+    {
+        int w,h;
+        void* data = stbi_load("assets/test.png", &w, &h, NULL, 4);
+        if(data == NULL) {
+            fprintf(stderr, "Couldn't load image!\n");
+            return 1;
+        }
+        
+        image_id = ui_create_texture(w,h);
+        if(image_id == -1) {
+            fprintf(stderr, "Couldn't create texture!\n");
+            return 1;
+        }
+
+        ui_update_texture(image_id, data);
+        
+        stbi_image_free(data);
+    }
+
+    {
+        int w,h;
+        void* data = stbi_load("assets/test2.png", &w, &h, NULL, 4);
+        if(data == NULL) {
+            fprintf(stderr, "Couldn't load image!\n");
+            return 1;
+        }
+        
+        image2_id = ui_create_texture(w,h);
+        if(image_id == -1) {
+            fprintf(stderr, "Couldn't create texture!\n");
+            return 1;
+        }
+
+        ui_update_texture(image2_id, data);
+        
+        stbi_image_free(data);
+    }
+
     uint32_t imageIndex;
 
     uint64_t oldTime = platform_get_time();
     double time = 0;
     double target_fps = 60.0;
+    bool using = false;
+    double counter = 0.0;
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
@@ -125,9 +169,20 @@ int main(){
             0
         );
 
+        counter += dt;
+
+        if(counter > 1.0) {
+            using = !using;
+            counter = 0;
+        }
+
         ui_scissor(0,0,swapchainExtent.width*(cos(time)/2+0.5), swapchainExtent.height*(sin(time)/2+0.5));
         size_t w = swapchainExtent.height;
-        ui_rect(swapchainExtent.width/2 - w/2,swapchainExtent.height/2 - w/2,w,w, 0xFFFF00FF);
+        ui_image(using ? image2_id : 69,swapchainExtent.width/2 - w/2,swapchainExtent.height/2 - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
+
+        ui_scissor(0,0,0,0);
+        w = swapchainExtent.height/2;
+        ui_image(image_id,swapchainExtent.width/2 - sin(time) * ((sin(time)/2+0.5)*200) - w/2,swapchainExtent.height/2 - cos(time) * ((sin(time)/2+0.5)*200) - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
 
         ui_scissor(0,swapchainExtent.height/2-swapchainExtent.height/4,swapchainExtent.width, swapchainExtent.height/2);
 

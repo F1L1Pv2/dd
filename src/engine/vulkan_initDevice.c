@@ -154,6 +154,16 @@ bool initDevice(){
     dynamicRenderingFeature.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
     dynamicRenderingFeature.dynamicRendering = VK_TRUE;
 
+    VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .runtimeDescriptorArray = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+        .descriptorBindingVariableDescriptorCount = VK_TRUE,
+        // ... add other features you need
+    };
+
+    dynamicRenderingFeature.pNext = &indexingFeatures;
+
     VkDeviceCreateInfo deviceInfo = {0};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceInfo.pNext = &dynamicRenderingFeature;

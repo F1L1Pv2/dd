@@ -33,6 +33,12 @@ void ui_text(const char* text, float x, float y, float size, uint32_t color);
 
 float ui_text_measure(const char* text, float size);
 
+void ui_image(uint32_t texture_id, float x, float y, float w, float h, float uv_x, float uv_y, float uv_w, float uv_h, uint32_t albedo);
+
+uint32_t ui_create_texture(size_t width, size_t height); // returns texture id (-1 on failure)
+bool ui_update_texture(uint32_t texture_id, void* data); // data is in uint32_t rgba
+bool ui_destroy_texture(uint32_t texture_id);
+
 void ui_scissor(float x, float y, float w, float h);
 
 void ui_window(size_t x, size_t y, size_t width, size_t height, uint32_t background);
