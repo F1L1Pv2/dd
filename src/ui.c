@@ -663,68 +663,38 @@ void ui_scissor(float x, float y, float w, float h){
 }
 
 // drawing
-
 typedef struct{
     VkBuffer buffer;
     VkDeviceMemory memory;
     void* mapped;
     VkDescriptorSet descriptorSet;
-} UIRectBuffer;
+    size_t size;
+} UIBuffer;
 
 typedef struct{
-    UIRectBuffer* items;
+    UIBuffer* items;
     size_t count;
     size_t capacity;
     size_t used;
-} UIRectBufferPool;
+    size_t item_size;
+} UIBufferPool;
 
-UIRectBuffer* UIRectBufferPool_get_avaliable(UIRectBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
+UIBuffer* UIBufferPool_get_avaliable(UIBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
     if(pool->used < pool->count) return &pool->items[pool->used++];
     da_reserve(pool, pool->count + 1);
-    UIRectBuffer* out = &pool->items[pool->count++];
+    UIBuffer* out = &pool->items[pool->count++];
 
     //initalization
-    VkDeviceSize bufferSize = sizeof(RectDrawCommand)*MAX_RECT_COUNT;
+    VkDeviceSize bufferSize = pool->item_size;
     if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&out->buffer,&out->memory)) return false;
     if(vkMapMemory(device, out->memory, 0, bufferSize, 0, &out->mapped) != VK_SUCCESS) return false;
     if(!ui_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, rectDescriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
+    out->size = bufferSize;
 
     return out;
 }
 
-void UIRectBufferPool_reset(UIRectBufferPool* pool){
-    pool->used = 0;
-}
-
-typedef struct{
-    VkBuffer buffer;
-    VkDeviceMemory memory;
-    void* mapped;
-    VkDescriptorSet descriptorSet;
-} UITextBuffer;
-
-typedef struct{
-    UITextBuffer* items;
-    size_t count;
-    size_t capacity;
-    size_t used;
-} UITextBufferPool;
-
-UITextBuffer* UITextBufferPool_get_avaliable(UITextBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
-    if(pool->used < pool->count) return &pool->items[pool->used++];
-    da_reserve(pool, pool->count + 1);
-    UITextBuffer* out = &pool->items[pool->count++];
-
-    //initalization
-    VkDeviceSize bufferSize = sizeof(TextDrawCommand)*MAX_TEXT_COUNT;
-    if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&out->buffer,&out->memory)) return false;
-    if(vkMapMemory(device, out->memory, 0, bufferSize, 0, &out->mapped) != VK_SUCCESS) return false;
-    if(!ui_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, textDescriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
-
-    return out;
-}
-
-void UITextBufferPool_reset(UITextBufferPool* pool){
+void UIBufferPool_reset(UIBufferPool* pool){
     pool->used = 0;
 }
 
@@ -787,8 +757,8 @@ static void ui_draw_text(VkCommandBuffer cmd, size_t screenWidth, size_t screenH
 
 static TextDrawCommands tempTextDrawCommands = {0};
 static RectDrawCommands tempRectDrawCommands = {0};
-static UIRectBufferPool tempUIRectBufferPool = {0};
-static UITextBufferPool tempUITextBufferPool = {0};
+static UIBufferPool tempUIRectBufferPool = {.item_size = sizeof(RectDrawCommand)*MAX_RECT_COUNT};
+static UIBufferPool tempUITextBufferPool = {.item_size = sizeof(TextDrawCommand)*MAX_TEXT_COUNT};
 size_t oldScreenWidth = 0;
 size_t oldScreenHeight = 0;
 
@@ -811,10 +781,10 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
     size_t index = 0;
     tempRectDrawCommands.count = 0;
-    UIRectBufferPool_reset(&tempUIRectBufferPool);
+    UIBufferPool_reset(&tempUIRectBufferPool);
 
     tempTextDrawCommands.count = 0;
-    UITextBufferPool_reset(&tempUITextBufferPool);
+    UIBufferPool_reset(&tempUITextBufferPool);
 
     VkRect2D scissor_default = {
         .offset.x = 0,
@@ -865,10 +835,12 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
         if(!(scissor.extent.width == 0 || scissor.extent.height == 0)) {
             //drawing
             if (type == UI_DRAW_CMD_RECT) {
-                UIRectBuffer* buff = UIRectBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
+                UIBuffer* buff = UIBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
+                assert(buff->size == sizeof(RectDrawCommand)*MAX_RECT_COUNT);
                 ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, &tempRectDrawCommands);
             }else if(type == UI_DRAW_CMD_TEXT){
-                UITextBuffer* buff = UITextBufferPool_get_avaliable(&tempUITextBufferPool, uiDevice, uiDescriptorPool);
+                UIBuffer* buff = UIBufferPool_get_avaliable(&tempUITextBufferPool, uiDevice, uiDescriptorPool);
+                assert(buff->size == sizeof(TextDrawCommand)*MAX_TEXT_COUNT);
                 ui_draw_text(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, &tempTextDrawCommands);
             }
         }
