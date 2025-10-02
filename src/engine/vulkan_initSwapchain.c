@@ -9,6 +9,7 @@
 #include "vulkan_globals.h"
 #include "vulkan_initSwapchain.h"
 #include "vulkan_images.h"
+#include "vulkan_internal.h"
 
 VkSwapchainKHR swapchain;
 VkFormat swapchainImageFormat;

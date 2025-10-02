@@ -17,8 +17,8 @@ int getNeededQueueFamilyIndex(VkQueueFlags flags){
 }
 
 bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t* index) {
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+    for (uint32_t i = 0; i < physicalMemoryProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (physicalMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
             *index = i;
             return true;
         }

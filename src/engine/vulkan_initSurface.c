@@ -15,6 +15,7 @@
 
 #include "vulkan_globals.h"
 #include "vulkan_initSurface.h"
+#include "vulkan_internal.h"
 
 
 VkSurfaceKHR surface;

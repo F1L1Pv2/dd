@@ -8,13 +8,14 @@
 
 #include "vulkan_globals.h"
 #include "vulkan_initDevice.h"
+#include "vulkan_internal.h"
 
 VkDevice device;
 VkPhysicalDevice physicalDevice;
 VkPhysicalDeviceLimits physicalDeviceLimits;
 VkQueue graphicsQueue;
 VkQueue presentQueue;
-VkPhysicalDeviceMemoryProperties memoryProperties;
+VkPhysicalDeviceMemoryProperties physicalMemoryProperties;
 MultipleVkQueueFamilyProperties multipleQueueFamilyProperties;
 
 typedef struct{
@@ -74,7 +75,7 @@ bool initDevice(){
     
     printf("INFO: Chosen %s physical device\n", physicalDeviceProperties.deviceName);
 
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalMemoryProperties);
 
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice,&multipleQueueFamilyProperties.count, NULL);
     da_resize(&multipleQueueFamilyProperties,multipleQueueFamilyProperties.count);

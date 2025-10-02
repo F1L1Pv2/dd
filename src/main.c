@@ -9,6 +9,15 @@
 int main(){
     vulkan_init_with_window("TRIEX NEW!", 640, 480);
 
+    VkCommandBuffer cmd;
+    if(vkAllocateCommandBuffers(device,&(VkCommandBufferAllocateInfo){
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = NULL,
+        .commandPool = commandPool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    },&cmd) != VK_SUCCESS) return 1;
+
     VkShaderModule vertexShader;
     const char* vertexShaderSrc = 
         "#version 450\n"

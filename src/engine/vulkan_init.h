@@ -3,6 +3,6 @@
 
 #include <stdbool.h>
 
-bool initialize_vulkan();
+bool initVulkan();
 
 #endif

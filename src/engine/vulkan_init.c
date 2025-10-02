@@ -7,7 +7,7 @@
 #include "vulkan/vulkan.h"
 
 #include "vulkan_globals.h"
-#include "vulkan_initialize.h"
+#include "vulkan_init.h"
 
 #ifdef DEBUG
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
@@ -27,7 +27,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 
 VkInstance instance;
 
-bool initialize_vulkan(){
+bool initVulkan(){
     VkApplicationInfo appInfo = {0};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pNext = NULL;
