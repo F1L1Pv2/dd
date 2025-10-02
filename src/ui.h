@@ -41,7 +41,4 @@ bool ui_destroy_texture(uint32_t texture_id);
 
 void ui_scissor(float x, float y, float w, float h);
 
-void ui_window(size_t x, size_t y, size_t width, size_t height, uint32_t background);
-
-
 #endif
