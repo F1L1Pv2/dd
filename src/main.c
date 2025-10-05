@@ -285,7 +285,7 @@ int main(){
         uint64_t frameEnd = platform_get_time_nanos();
         double frameTime = (double)(frameEnd - now) * 1e-9;
         if (frameTime < target_frame_time) {
-            platform_sleep(target_frame_time - frameTime);
+            platform_sleep((target_frame_time - frameTime)*1000);
         }
     }
 
