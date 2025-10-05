@@ -227,13 +227,22 @@ void platform_sleep(size_t milis){
     Sleep(milis);
 }
 
-uint64_t platform_get_time(){
+uint64_t platform_get_time_milis(){
     FILETIME ft;
     ULARGE_INTEGER uli;
     GetSystemTimeAsFileTime(&ft);
     uli.LowPart = ft.dwLowDateTime;
     uli.HighPart = ft.dwHighDateTime;
     return (uli.QuadPart - 116444736000000000ULL) / 10000ULL;
+}
+
+uint64_t platform_get_time_nanos() {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (uli.QuadPart - 116444736000000000ULL) * 100ULL;
 }
 
 void platform_fill_keycode_lookup_table(){

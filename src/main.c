@@ -134,9 +134,10 @@ int main(){
 
     uint32_t imageIndex;
 
-    uint64_t oldTime = platform_get_time();
-    double time = 0;
+    uint64_t oldTime = platform_get_time_nanos();
+    double time = 0.0;
     double target_fps = 60.0;
+    double target_frame_time = 1.0 / target_fps;
     bool using = false;
     double counter = 0.0;
     while(platform_still_running()){
@@ -146,10 +147,14 @@ int main(){
             continue;
         }
 
-        uint64_t Time = platform_get_time();
-        double dt = (double)(Time-oldTime)/1000.0;
+        uint64_t now = platform_get_time_nanos();
+        double dt = (double)(now - oldTime) * 1e-9;
+        oldTime = now;
+
+        if (dt > 0.1) dt = 0.1;
+
         time += dt;
-        oldTime = Time;
+        counter += dt;
 
         ui_begin(
             input.mouse_x, input.mouse_y,
@@ -204,6 +209,13 @@ int main(){
             const char* text = "Hello Baller!\nF1L1P Here!";
             float size = swapchainExtent.height/20 * (sin(time)/2+0.5)*2; 
             ui_text(text, swapchainExtent.width/2 - ui_text_measure(text, size)/2, swapchainExtent.height/2, size, 0xFFFFFFFF);
+        }
+
+        {
+            char text[256];
+            snprintf(text, sizeof(text), "dt: %f", dt);
+            float size = swapchainExtent.height/15; 
+            ui_text(text, 0, 0, size, 0xFFFFFFFF);
         }
 
         ui_end();
@@ -270,10 +282,10 @@ int main(){
             .pImageIndices = &imageIndex
         });
 
-        Time = platform_get_time();
-
-        if(Time-oldTime < (size_t)(1.0/target_fps * 1000.0)){
-            platform_sleep(1.0f/target_fps - (double)(Time-oldTime) / 1000.0);
+        uint64_t frameEnd = platform_get_time_nanos();
+        double frameTime = (double)(frameEnd - now) * 1e-9;
+        if (frameTime < target_frame_time) {
+            platform_sleep(target_frame_time - frameTime);
         }
     }
 

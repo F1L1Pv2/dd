@@ -255,7 +255,7 @@ bool platform_window_handle_events() {
 bool platform_still_running() { return running; }
 void platform_sleep(size_t milis) { usleep(milis*1000); }
 
-uint64_t platform_get_time() {
+uint64_t platform_get_time_milis() {
     #ifdef CLOCK_REALTIME
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -264,6 +264,18 @@ uint64_t platform_get_time() {
         struct timeval tv;
         gettimeofday(&tv, NULL);
         return ((uint64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000));
+    #endif
+}
+
+uint64_t platform_get_time_nanos() {
+    #ifdef CLOCK_REALTIME
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+    #else
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return (uint64_t)tv.tv_sec * 1000000000ULL + (tv.tv_usec * 1000ULL);
     #endif
 }
 

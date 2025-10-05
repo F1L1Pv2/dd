@@ -12,28 +12,25 @@
 #include <stdlib.h>
 #include "thirdparty/stb_image.h"
 
-#define DA_INIT_CAP 256
-
-#define da_reserve(da, expected_capacity)                                                  \
-    do {                                                                                   \
-        if ((expected_capacity) > (da)->capacity) {                                        \
-            if ((da)->capacity == 0) {                                                     \
-                (da)->capacity = DA_INIT_CAP;                                              \
-            }                                                                              \
-            while ((expected_capacity) > (da)->capacity) {                                 \
-                (da)->capacity *= 2;                                                       \
-            }                                                                              \
-            (da)->items = realloc((da)->items, (da)->capacity * sizeof(*(da)->items));     \
-            assert((da)->items != NULL && "Buy more RAM lol");                             \
-        }                                                                                  \
-    } while (0)
-
-// Append an item to a dynamic array
-#define da_append(da, item)                    \
-    do {                                       \
-        da_reserve((da), (da)->count + 1); \
-        (da)->items[(da)->count++] = (item);   \
-    } while (0)
+#define DA_REALLOC(optr, osize, new_size) realloc(optr, new_size)
+#define da_reserve(da, extra) \
+   do {\
+      if((da)->count + extra >= (da)->capacity) {\
+          void* _da_old_ptr;\
+          size_t _da_old_capacity = (da)->capacity;\
+          (void)_da_old_capacity;\
+          (void)_da_old_ptr;\
+          (da)->capacity = (da)->capacity*2+extra;\
+          _da_old_ptr = (da)->items;\
+          (da)->items = DA_REALLOC(_da_old_ptr, _da_old_capacity*sizeof(*(da)->items), (da)->capacity*sizeof(*(da)->items));\
+          assert((da)->items && "Ran out of memory");\
+      }\
+   } while(0)
+#define da_push(da, value) \
+   do {\
+        da_reserve(da, 1);\
+        (da)->items[(da)->count++]=value;\
+   } while(0)
 
 typedef struct{
     float x;
@@ -812,7 +809,7 @@ void ui_end(){
 }
 
 void ui_rect(float x, float y, float w, float h, uint32_t color){
-    da_append(&drawCommands, ((DrawCommand){
+    da_push(&drawCommands, ((DrawCommand){
         .type = UI_DRAW_CMD_RECT,
         .as.rect = (RectDrawCommand){
             .position.x = x,
@@ -843,7 +840,7 @@ void ui_text(const char* text, float x, float y, float size, uint32_t color){
             origin_x = 0;
             continue;
         }
-        da_append(&drawCommands, ((DrawCommand){
+        da_push(&drawCommands, ((DrawCommand){
         .type = UI_DRAW_CMD_TEXT,
             .as.text = (TextDrawCommand){
                 .position.x = origin_x + x,
@@ -919,7 +916,7 @@ static UITexturePool uITexturePool = {.count = MAX_TEXTURES_COUNT};
 
 void ui_image(uint32_t texture_id, float x, float y, float w, float h, float uv_x, float uv_y, float uv_w, float uv_h, uint32_t albedo){
     if(texture_id >= uITexturePool.count) return;
-    da_append(&drawCommands, ((DrawCommand){
+    da_push(&drawCommands, ((DrawCommand){
         .type = UI_DRAW_CMD_IMAGE,
         .as.image = (ImageDrawCommand){
             .texture_id = texture_id,
@@ -1054,7 +1051,7 @@ bool ui_destroy_texture(uint32_t texture_id) {
 }
 
 void ui_scissor(float x, float y, float w, float h){
-    da_append(&drawCommands, ((DrawCommand){
+    da_push(&drawCommands, ((DrawCommand){
         .type = UI_DRAW_CMD_SCISSOR,
         .as.scissor = (ScissorDrawCommand){
             .offset.x = x,
@@ -1258,9 +1255,9 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
             else if (type == UI_DRAW_CMD_NONE) type = cur->type;
             else if (type != cur->type) break;
 
-            if (type == UI_DRAW_CMD_RECT) da_append(&tempRectDrawCommands, cur->as.rect);
-            else if(type == UI_DRAW_CMD_TEXT) da_append(&tempTextDrawCommands, cur->as.text);
-            else if(type == UI_DRAW_CMD_IMAGE) da_append(&tempImageDrawCommands, cur->as.image);
+            if (type == UI_DRAW_CMD_RECT) da_push(&tempRectDrawCommands, cur->as.rect);
+            else if(type == UI_DRAW_CMD_TEXT) da_push(&tempTextDrawCommands, cur->as.text);
+            else if(type == UI_DRAW_CMD_IMAGE) da_push(&tempImageDrawCommands, cur->as.image);
             else if(type == UI_DRAW_CMD_NONE) assert(false && "Unreachable NONE");
             else if(type == UI_DRAW_CMDS_COUNT) assert(false && "Unreachable COUNT");
             else assert(false && "Unreachable TYPE");
