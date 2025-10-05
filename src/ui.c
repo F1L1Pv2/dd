@@ -1236,7 +1236,13 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
         while (index < drawCommands.count) {
             DrawCommand* cur = &drawCommands.items[index];
-            if(cur->type == UI_DRAW_CMD_SCISSOR){
+            if (type == UI_DRAW_CMD_NONE) type = cur->type;
+            else if (type != cur->type) break;
+
+            if (type == UI_DRAW_CMD_RECT) da_push(&tempRectDrawCommands, cur->as.rect);
+            else if(type == UI_DRAW_CMD_TEXT) da_push(&tempTextDrawCommands, cur->as.text);
+            else if(type == UI_DRAW_CMD_IMAGE) da_push(&tempImageDrawCommands, cur->as.image);
+            else if(type == UI_DRAW_CMD_SCISSOR) {
                 if(cur->as.scissor.size.x == 0 && cur->as.scissor.size.y == 0){
                     new_scissor = scissor_default;
                 }else{
@@ -1249,21 +1255,14 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
                 }
 
                 scissor_changed = true;
-                index++;
-                break;
             }
-            else if (type == UI_DRAW_CMD_NONE) type = cur->type;
-            else if (type != cur->type) break;
-
-            if (type == UI_DRAW_CMD_RECT) da_push(&tempRectDrawCommands, cur->as.rect);
-            else if(type == UI_DRAW_CMD_TEXT) da_push(&tempTextDrawCommands, cur->as.text);
-            else if(type == UI_DRAW_CMD_IMAGE) da_push(&tempImageDrawCommands, cur->as.image);
             else if(type == UI_DRAW_CMD_NONE) assert(false && "Unreachable NONE");
             else if(type == UI_DRAW_CMDS_COUNT) assert(false && "Unreachable COUNT");
             else assert(false && "Unreachable TYPE");
 
             index++;
-            if (type == UI_DRAW_CMD_RECT && tempRectDrawCommands.count >= MAX_RECT_COUNT) break;
+            if(type == UI_DRAW_CMD_SCISSOR) break;
+            else if (type == UI_DRAW_CMD_RECT && tempRectDrawCommands.count >= MAX_RECT_COUNT) break;
             else if (type == UI_DRAW_CMD_TEXT && tempTextDrawCommands.count >= MAX_TEXT_COUNT) break;
             else if (type == UI_DRAW_CMD_IMAGE && tempImageDrawCommands.count >= MAX_IMAGE_COUNT) break;
         }
