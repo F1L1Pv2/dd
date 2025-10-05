@@ -213,7 +213,7 @@ int main(){
 
         {
             char text[256];
-            snprintf(text, sizeof(text), "dt: %f", dt);
+            snprintf(text, sizeof(text), "time: %f\ndt: %f", time, dt);
             float size = swapchainExtent.height/15; 
             ui_text(text, 0, 0, size, 0xFFFFFFFF);
         }
