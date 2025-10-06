@@ -901,6 +901,7 @@ typedef struct{
     size_t stride;
     size_t width;
     size_t height;
+    void* mapped;
     bool used;
 } DDTexture;
 
@@ -999,8 +1000,8 @@ bool dd_update_texture(uint32_t texture_id, void* data){
 
     DDTexture* texture = &uITexturePool.items[texture_id];
 
-    void *mapped;
-    if(vkMapMemory(uiDevice, texture->memory, 0, texture->stride*texture->height, 0, &mapped) != VK_SUCCESS) return false;
+    void *mapped = texture->mapped;
+    if(!texture->mapped) if(vkMapMemory(uiDevice, texture->memory, 0, texture->stride*texture->height, 0, &mapped) != VK_SUCCESS) return false;
 
     for(size_t y = 0; y < texture->height; y++){
         memcpy((uint8_t*)mapped + texture->stride*y,
@@ -1009,9 +1010,39 @@ bool dd_update_texture(uint32_t texture_id, void* data){
             );
     }
 
-    vkUnmapMemory(uiDevice, texture->memory);
+    if(!texture->mapped) vkUnmapMemory(uiDevice, texture->memory);
     return true;
 }
+
+void* dd_map_texture(uint32_t texture_id){
+    if (texture_id == (uint32_t)-1) return NULL;
+    if (texture_id >= uITexturePool.count) return NULL;
+
+    DDTexture* texture = &uITexturePool.items[texture_id];
+    if(!texture->mapped){
+        if(vkMapMemory(uiDevice, texture->memory, 0, texture->stride*texture->height, 0, &texture->mapped) != VK_SUCCESS) return NULL;
+    }
+
+    return texture->mapped;
+}
+void dd_unmap_texture(uint32_t texture_id){
+    if (texture_id == (uint32_t)-1) return;
+    if (texture_id >= uITexturePool.count) return;
+
+    DDTexture* texture = &uITexturePool.items[texture_id];
+    if(!texture->mapped) return;
+    vkUnmapMemory(uiDevice, texture->memory);
+    texture->mapped = NULL;
+}
+
+size_t dd_get_texture_stride(uint32_t texture_id){
+    if (texture_id == (uint32_t)-1) return 0;
+    if (texture_id >= uITexturePool.count) return 0;
+
+    DDTexture* texture = &uITexturePool.items[texture_id];
+    return texture->stride;
+}
+
 
 bool dd_destroy_texture(uint32_t texture_id) {
     if (texture_id == (uint32_t)-1) return false;

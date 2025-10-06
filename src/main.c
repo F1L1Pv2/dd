@@ -93,6 +93,7 @@ int main(){
 
     uint32_t image_id;
     uint32_t image2_id;
+    uint32_t image3_id;
 
     {
         int w,h;
@@ -131,6 +132,11 @@ int main(){
         
         stbi_image_free(data);
     }
+
+    image3_id = dd_create_texture(16,16);
+    void* image3_mapped = dd_map_texture(image3_id);
+    size_t image3_stride = dd_get_texture_stride(image3_id);
+    memset(image3_mapped, 0xFFFFFFFF, image3_stride*16);
 
     uint32_t imageIndex;
 
@@ -188,6 +194,15 @@ int main(){
         dd_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
 
         dd_scissor(0,0,0,0);
+
+        for(size_t y = 0; y < 16; y++){
+            for(size_t x = 0; x < 16; x++){
+                uint32_t* pixel = (uint32_t*)((uint8_t*)image3_mapped + y * image3_stride + x * sizeof(uint32_t));
+                *pixel = 0xFF000000 | rand(); // RGBA pixel
+            }
+        }
+
+        dd_image(image3_id, (sin(time)/2+0.5)*(swapchainExtent.width-128),swapchainExtent.height/2,128,128,0,0,1,1,0xFFFFFFFF);
 
         {
             const char* text = "Hello Baller!\nF1L1P Here!";

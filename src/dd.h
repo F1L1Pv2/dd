@@ -22,6 +22,9 @@ void dd_image(uint32_t texture_id, float x, float y, float w, float h, float uv_
 uint32_t dd_create_texture(size_t width, size_t height); // returns texture id (-1 on failure)
 bool dd_update_texture(uint32_t texture_id, void* data); // data is in uint32_t rgba
 bool dd_destroy_texture(uint32_t texture_id);
+void* dd_map_texture(uint32_t texture_id);
+void dd_unmap_texture(uint32_t texture_id);
+size_t dd_get_texture_stride(uint32_t texture_id);
 
 void dd_scissor(float x, float y, float w, float h);
 
