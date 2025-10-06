@@ -161,15 +161,16 @@ typedef struct{
     } as;
 } DrawCommand;
 
+typedef struct {
+    void* buff;
+    size_t size;
+    size_t capacity;
+} DrawCommandArena;
+
 typedef struct{
     UiDrawCmdType* items;
     size_t count;
     size_t capacity;
-    struct {
-        void* buff;
-        size_t size;
-        size_t capacity;
-    } cmds;
 } DrawCommands;
 
 typedef struct{
@@ -179,6 +180,7 @@ typedef struct{
 static bool inited = false;
 static VkSampler dd_samplerNearest;
 static DrawCommands drawCommands = {0};
+static DrawCommandArena drawCommandsArena = {0};
 static PushConstants pushConstants;
 
 static bool dd_create_buffer_descriptor_set_and_bind_buffer(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet* descriptorSetOut, VkBuffer buffer, VkDeviceSize size){
@@ -796,25 +798,9 @@ bool dd_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
     return true;
 }
 
-void dd_begin(
-    size_t mouseX, size_t mouseY, 
-    bool mouse_left_down,
-    bool mouse_left_justPressed,
-    bool mouse_left_justReleased,
-
-    bool mouse_middle_down,
-    bool mouse_middle_justPressed,
-    bool mouse_middle_justReleased,
-
-    bool mouse_right_down,
-    bool mouse_right_justPressed,
-    bool mouse_right_justReleased,
-    double mouse_scroll,
-
-    char* lastTextKey // used for typing in text boxes
-){
+void dd_begin(){
     drawCommands.count = 0;
-    drawCommands.cmds.size = 0;
+    drawCommandsArena.size = 0;
     return;
 }
 
@@ -825,10 +811,10 @@ void dd_end(){
 static void dd_cmds_push(DrawCommands* drawCommands, DrawCommand drawCommand){
     assert(drawCommand.type != DD_DRAW_CMD_NONE && drawCommand.type != DD_DRAW_CMDS_COUNT);
 
-    if(drawCommand.type == DD_DRAW_CMD_RECT) da_arena_push(&drawCommands->cmds, drawCommand.as.rect);
-    else if(drawCommand.type == DD_DRAW_CMD_SCISSOR) da_arena_push(&drawCommands->cmds, drawCommand.as.scissor);
-    else if(drawCommand.type == DD_DRAW_CMD_TEXT) da_arena_push(&drawCommands->cmds, drawCommand.as.text);
-    else if(drawCommand.type == DD_DRAW_CMD_IMAGE) da_arena_push(&drawCommands->cmds, drawCommand.as.image);
+    if(drawCommand.type == DD_DRAW_CMD_RECT) da_arena_push(&drawCommandsArena, drawCommand.as.rect);
+    else if(drawCommand.type == DD_DRAW_CMD_SCISSOR) da_arena_push(&drawCommandsArena, drawCommand.as.scissor);
+    else if(drawCommand.type == DD_DRAW_CMD_TEXT) da_arena_push(&drawCommandsArena, drawCommand.as.text);
+    else if(drawCommand.type == DD_DRAW_CMD_IMAGE) da_arena_push(&drawCommandsArena, drawCommand.as.image);
     else assert(false && "Implement this type");
 
     da_push(drawCommands, drawCommand.type);
@@ -1249,7 +1235,7 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     VkRect2D new_scissor = scissor;
     bool scissor_changed = false;
 
-    void* ptr = drawCommands.cmds.buff;
+    void* ptr = drawCommandsArena.buff;
 
     while (index < drawCommands.count) {
         UiDrawCmdType type = DD_DRAW_CMD_NONE;

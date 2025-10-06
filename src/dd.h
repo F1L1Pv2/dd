@@ -5,23 +5,7 @@
 #include <stdbool.h>
 
 bool dd_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool);
-void dd_begin(
-    size_t mouseX, size_t mouseY, 
-    bool mouse_left_down,
-    bool mouse_left_justPressed,
-    bool mouse_left_justReleased,
-
-    bool mouse_middle_down,
-    bool mouse_middle_justPressed,
-    bool mouse_middle_justReleased,
-
-    bool mouse_right_down,
-    bool mouse_right_justPressed,
-    bool mouse_right_justReleased,
-    double mouse_scroll,
-
-    char* lastTextKey // used for typing in text boxes
-);
+void dd_begin();
 
 void dd_end();
 

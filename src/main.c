@@ -156,23 +156,7 @@ int main(){
         time += dt;
         counter += dt;
 
-        dd_begin(
-            input.mouse_x, input.mouse_y,
-            input.keys[KEY_MOUSE_LEFT].isDown,
-            input.keys[KEY_MOUSE_LEFT].justPressed,
-            input.keys[KEY_MOUSE_LEFT].justReleased,
-
-            input.keys[KEY_MOUSE_MIDDLE].isDown,
-            input.keys[KEY_MOUSE_MIDDLE].justPressed,
-            input.keys[KEY_MOUSE_MIDDLE].justReleased,
-
-            input.keys[KEY_MOUSE_RIGHT].isDown,
-            input.keys[KEY_MOUSE_RIGHT].justPressed,
-            input.keys[KEY_MOUSE_RIGHT].justReleased,
-
-            input.scroll,
-            0
-        );
+        dd_begin();
 
         counter += dt;
 
