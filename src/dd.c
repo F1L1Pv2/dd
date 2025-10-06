@@ -1,4 +1,4 @@
-#include "ui.h"
+#include "dd.h"
 
 #include "vulkan/vulkan.h"
 #include "engine/vulkan_createGraphicPipelines.h"
@@ -74,7 +74,7 @@ typedef struct {
     float v[16];
 } mat4;
 
-mat4 ortho2D(float width, float height){
+static mat4 ortho2D(float width, float height){
     float left = -width/2;
     float right = width/2;
     float top = height/2;
@@ -88,7 +88,7 @@ mat4 ortho2D(float width, float height){
     };
 }
 
-mat4 mat4mul(mat4 *a, mat4 *b) {
+static mat4 mat4mul(mat4 *a, mat4 *b) {
     mat4 result;
 
     // Column-major multiplication: result[i][j] = sum_k a[k][j] * b[i][k]
@@ -143,12 +143,12 @@ typedef struct {
 } ImageDrawCommand;
 
 typedef enum {
-    UI_DRAW_CMD_NONE = 0,
-    UI_DRAW_CMD_RECT,
-    UI_DRAW_CMD_SCISSOR,
-    UI_DRAW_CMD_TEXT,
-    UI_DRAW_CMD_IMAGE,
-    UI_DRAW_CMDS_COUNT,
+    DD_DRAW_CMD_NONE = 0,
+    DD_DRAW_CMD_RECT,
+    DD_DRAW_CMD_SCISSOR,
+    DD_DRAW_CMD_TEXT,
+    DD_DRAW_CMD_IMAGE,
+    DD_DRAW_CMDS_COUNT,
 } UiDrawCmdType;
 
 typedef struct{
@@ -177,11 +177,11 @@ typedef struct{
 } PushConstants;
 
 static bool inited = false;
-static VkSampler ui_samplerNearest;
+static VkSampler dd_samplerNearest;
 static DrawCommands drawCommands = {0};
 static PushConstants pushConstants;
 
-static bool ui_create_buffer_descriptor_set_and_bind_buffer(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet* descriptorSetOut, VkBuffer buffer, VkDeviceSize size){
+static bool dd_create_buffer_descriptor_set_and_bind_buffer(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet* descriptorSetOut, VkBuffer buffer, VkDeviceSize size){
     VkResult result;
     VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
     descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -213,7 +213,7 @@ static bool ui_create_buffer_descriptor_set_and_bind_buffer(VkDevice device, VkD
     return true;
 }
 
-static bool ui_create_image_descriptor_set_and_bind_image(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet* descriptorSetOut, VkImageView imageView, VkSampler sampler){
+static bool dd_create_image_descriptor_set_and_bind_image(VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet* descriptorSetOut, VkImageView imageView, VkSampler sampler){
     VkResult result;
     VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {0};
     descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -245,7 +245,7 @@ static bool ui_create_image_descriptor_set_and_bind_image(VkDevice device, VkDes
     return true;
 }
 
-static void ui_transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
+static void dd_transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
     VkImageMemoryBarrier barrier = {0};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.pNext = NULL;
@@ -270,13 +270,13 @@ static void ui_transitionMyImage_inner(VkCommandBuffer tempCmd, VkImage image, V
     );
 }
 
-static void ui_transitionMyImage(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
+static void dd_transitionMyImage(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlagBits oldStage, VkPipelineStageFlagBits newStage){
     VkCommandBuffer tempCmd = vkCmdBeginSingleTime();
-    ui_transitionMyImage_inner(tempCmd, image, oldLayout, newLayout, oldStage, newStage);
+    dd_transitionMyImage_inner(tempCmd, image, oldLayout, newLayout, oldStage, newStage);
     vkCmdEndSingleTime(tempCmd);
 }
 
-static bool ui_createMyImage(VkDevice device, VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
+static bool dd_createMyImage(VkDevice device, VkImage* image, size_t width, size_t height, VkDeviceMemory* imageMemory, VkImageView* imageView, size_t* imageStride, void** imageMapped, VkImageUsageFlagBits imageUsage, VkMemoryPropertyFlagBits memoryProperty){
     if(!vkCreateImageEX(device, width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR,
             imageUsage,
             memoryProperty, image,imageMemory)){
@@ -301,7 +301,7 @@ static VkPipeline rectPipeline;
 static VkPipelineLayout rectPipelineLayout;
 static VkDescriptorSetLayout rectDescriptorSetLayout = {0};
 
-static bool ui_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+static bool dd_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     //TODO use precompiled shaders
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
@@ -397,7 +397,7 @@ static VkImageView textImageView;
 static VkDeviceMemory textImageMemory;
 static size_t textImageStride;
 
-static bool ui_init_text(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+static bool dd_init_text(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     //TODO use precompiled shaders
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
@@ -512,7 +512,7 @@ static bool ui_init_text(VkDevice device, VkFormat outFormat, VkDescriptorPool d
 
     void* textImageMapped;
     
-    if(!ui_createMyImage(device, &textImage,
+    if(!dd_createMyImage(device, &textImage,
         w,h,
         &textImageMemory,
         &textImageView,
@@ -533,11 +533,11 @@ static bool ui_init_text(VkDevice device, VkFormat outFormat, VkDescriptorPool d
 
     stbi_image_free(data);
 
-    ui_transitionMyImage(textImage,
+    dd_transitionMyImage(textImage,
         VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-    if(!ui_create_image_descriptor_set_and_bind_image(device, descriptorPool, textImageDescriptorSetLayout, &textImageDescriptorSet, textImageView, ui_samplerNearest)) return false;
+    if(!dd_create_image_descriptor_set_and_bind_image(device, descriptorPool, textImageDescriptorSetLayout, &textImageDescriptorSet, textImageView, dd_samplerNearest)) return false;
 
     return true;
 }
@@ -557,7 +557,7 @@ static size_t imagesNullTextureStride;
 static size_t imagesNullTextureWidth = 8;
 static size_t imagesNullTextureHeight = 8;
 
-static bool ui_init_images(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+static bool dd_init_images(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     //TODO use precompiled shaders
     VkShaderModule vertexShader;
     const char* vertexShaderSrc =
@@ -712,7 +712,7 @@ static bool ui_init_images(VkDevice device, VkFormat outFormat, VkDescriptorPool
         }
 
         void* mapped;
-        if(!ui_createMyImage(device, 
+        if(!dd_createMyImage(device, 
             &imagesNullTexture, 
             imagesNullTextureWidth, imagesNullTextureHeight, 
             &imagesNullTextureMemory, 
@@ -733,13 +733,13 @@ static bool ui_init_images(VkDevice device, VkFormat outFormat, VkDescriptorPool
 
         vkUnmapMemory(device, imagesNullTextureMemory);
 
-        ui_transitionMyImage(imagesNullTexture,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        dd_transitionMyImage(imagesNullTexture,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
         VkDescriptorImageInfo*  descriptorImageInfos = (VkDescriptorImageInfo*)calloc(MAX_TEXTURES_COUNT, sizeof(VkDescriptorImageInfo));
         for(size_t i = 0; i < MAX_TEXTURES_COUNT; i++){
             descriptorImageInfos[i] = (VkDescriptorImageInfo){
-                .sampler = ui_samplerNearest,
+                .sampler = dd_samplerNearest,
                 .imageView = imagesNullTextureView,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
@@ -764,7 +764,7 @@ static bool ui_init_images(VkDevice device, VkFormat outFormat, VkDescriptorPool
 
 static VkDescriptorPool uiDescriptorPool;
 static VkDevice uiDevice;
-bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+bool dd_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
     if(inited) return true;
 
     if(vkCreateSampler(device, &(VkSamplerCreateInfo){
@@ -784,11 +784,11 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
         .mipLodBias = 0.0f,
         .minLod = 0.0f,
         .maxLod = VK_LOD_CLAMP_NONE,
-    }, NULL, &ui_samplerNearest) != VK_SUCCESS) return false;
+    }, NULL, &dd_samplerNearest) != VK_SUCCESS) return false;
 
-    if(!ui_init_rects(device, outFormat, descriptorPool)) return false;
-    if(!ui_init_text(device, outFormat, descriptorPool)) return false;
-    if(!ui_init_images(device, outFormat, descriptorPool)) return false;
+    if(!dd_init_rects(device, outFormat, descriptorPool)) return false;
+    if(!dd_init_text(device, outFormat, descriptorPool)) return false;
+    if(!dd_init_images(device, outFormat, descriptorPool)) return false;
     uiDescriptorPool = descriptorPool;
     uiDevice = device;
 
@@ -796,7 +796,7 @@ bool ui_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
     return true;
 }
 
-void ui_begin(
+void dd_begin(
     size_t mouseX, size_t mouseY, 
     bool mouse_left_down,
     bool mouse_left_justPressed,
@@ -818,25 +818,25 @@ void ui_begin(
     return;
 }
 
-void ui_end(){
+void dd_end(){
     return;
 }
 
-static void ui_cmds_push(DrawCommands* drawCommands, DrawCommand drawCommand){
-    assert(drawCommand.type != UI_DRAW_CMD_NONE && drawCommand.type != UI_DRAW_CMDS_COUNT);
+static void dd_cmds_push(DrawCommands* drawCommands, DrawCommand drawCommand){
+    assert(drawCommand.type != DD_DRAW_CMD_NONE && drawCommand.type != DD_DRAW_CMDS_COUNT);
 
-    if(drawCommand.type == UI_DRAW_CMD_RECT) da_arena_push(&drawCommands->cmds, drawCommand.as.rect);
-    else if(drawCommand.type == UI_DRAW_CMD_SCISSOR) da_arena_push(&drawCommands->cmds, drawCommand.as.scissor);
-    else if(drawCommand.type == UI_DRAW_CMD_TEXT) da_arena_push(&drawCommands->cmds, drawCommand.as.text);
-    else if(drawCommand.type == UI_DRAW_CMD_IMAGE) da_arena_push(&drawCommands->cmds, drawCommand.as.image);
+    if(drawCommand.type == DD_DRAW_CMD_RECT) da_arena_push(&drawCommands->cmds, drawCommand.as.rect);
+    else if(drawCommand.type == DD_DRAW_CMD_SCISSOR) da_arena_push(&drawCommands->cmds, drawCommand.as.scissor);
+    else if(drawCommand.type == DD_DRAW_CMD_TEXT) da_arena_push(&drawCommands->cmds, drawCommand.as.text);
+    else if(drawCommand.type == DD_DRAW_CMD_IMAGE) da_arena_push(&drawCommands->cmds, drawCommand.as.image);
     else assert(false && "Implement this type");
 
     da_push(drawCommands, drawCommand.type);
 }
 
-void ui_rect(float x, float y, float w, float h, uint32_t color){
-    ui_cmds_push(&drawCommands, ((DrawCommand){
-        .type = UI_DRAW_CMD_RECT,
+void dd_rect(float x, float y, float w, float h, uint32_t color){
+    dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_RECT,
         .as.rect = (RectDrawCommand){
             .position.x = x,
             .position.y = y,
@@ -854,7 +854,7 @@ void ui_rect(float x, float y, float w, float h, uint32_t color){
 
 #define TEXT_WIDTH_RATIO (0.5)
 
-void ui_text(const char* text, float x, float y, float size, uint32_t color){
+void dd_text(const char* text, float x, float y, float size, uint32_t color){
     if(!text) return;
     size_t n = strlen(text);
     float origin_x = 0;
@@ -866,8 +866,8 @@ void ui_text(const char* text, float x, float y, float size, uint32_t color){
             origin_x = 0;
             continue;
         }
-        ui_cmds_push(&drawCommands, ((DrawCommand){
-        .type = UI_DRAW_CMD_TEXT,
+        dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_TEXT,
             .as.text = (TextDrawCommand){
                 .position.x = origin_x + x,
                 .position.y = origin_y + y,
@@ -889,7 +889,7 @@ void ui_text(const char* text, float x, float y, float size, uint32_t color){
     }
 }
 
-float ui_text_measure(const char* text, float size){
+float dd_text_measure(const char* text, float size){
     float out = 0;
     float currentLine = 0;
     size_t n = strlen(text);
@@ -916,19 +916,19 @@ typedef struct{
     size_t width;
     size_t height;
     bool used;
-} UITexture;
+} DDTexture;
 
 typedef struct{
-    UITexture* items;
+    DDTexture* items;
     size_t count;
     size_t capacity;
-} UITexturePool;
+} DDTexturePool;
 
-uint32_t UITexturePool_find_empty(UITexturePool* pool){
+uint32_t DDTexturePool_find_empty(DDTexturePool* pool){
     if(pool->capacity == 0) {
         da_reserve(pool, pool->count);
         for(size_t i = 0; i < pool->count; i++){
-            pool->items[i] = (UITexture){0};
+            pool->items[i] = (DDTexture){0};
         }
     }
 
@@ -938,12 +938,12 @@ uint32_t UITexturePool_find_empty(UITexturePool* pool){
     return -1;
 }
 
-static UITexturePool uITexturePool = {.count = MAX_TEXTURES_COUNT};
+static DDTexturePool uITexturePool = {.count = MAX_TEXTURES_COUNT};
 
-void ui_image(uint32_t texture_id, float x, float y, float w, float h, float uv_x, float uv_y, float uv_w, float uv_h, uint32_t albedo){
+void dd_image(uint32_t texture_id, float x, float y, float w, float h, float uv_x, float uv_y, float uv_w, float uv_h, uint32_t albedo){
     if(texture_id >= uITexturePool.count) return;
-    ui_cmds_push(&drawCommands, ((DrawCommand){
-        .type = UI_DRAW_CMD_IMAGE,
+    dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_IMAGE,
         .as.image = (ImageDrawCommand){
             .texture_id = texture_id,
 
@@ -966,13 +966,13 @@ void ui_image(uint32_t texture_id, float x, float y, float w, float h, float uv_
     }));
 }
 
-uint32_t ui_create_texture(size_t width, size_t height){
-    uint32_t texture_id = UITexturePool_find_empty(&uITexturePool);
+uint32_t dd_create_texture(size_t width, size_t height){
+    uint32_t texture_id = DDTexturePool_find_empty(&uITexturePool);
     if(texture_id == -1) return texture_id; // couldnt find empty texture (pool full)
 
-    UITexture* texture = &uITexturePool.items[texture_id];
+    DDTexture* texture = &uITexturePool.items[texture_id];
     
-    if(!ui_createMyImage(uiDevice, 
+    if(!dd_createMyImage(uiDevice, 
         &texture->image, 
         width, height, 
         &texture->memory, 
@@ -983,7 +983,7 @@ uint32_t ui_create_texture(size_t width, size_t height){
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
     )) return -1;
 
-    ui_transitionMyImage(texture->image,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    dd_transitionMyImage(texture->image,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
     vkUpdateDescriptorSets(uiDevice,1,&(VkWriteDescriptorSet){
@@ -995,7 +995,7 @@ uint32_t ui_create_texture(size_t width, size_t height){
         .descriptorCount = 1,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .pImageInfo = &(VkDescriptorImageInfo){
-            .sampler = ui_samplerNearest,
+            .sampler = dd_samplerNearest,
             .imageView = texture->view,
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         },
@@ -1007,11 +1007,11 @@ uint32_t ui_create_texture(size_t width, size_t height){
     return texture_id;
 }
 
-bool ui_update_texture(uint32_t texture_id, void* data){
+bool dd_update_texture(uint32_t texture_id, void* data){
     if(texture_id == -1) return false;
     if(texture_id >= uITexturePool.count) return false;
 
-    UITexture* texture = &uITexturePool.items[texture_id];
+    DDTexture* texture = &uITexturePool.items[texture_id];
 
     void *mapped;
     if(vkMapMemory(uiDevice, texture->memory, 0, texture->stride*texture->height, 0, &mapped) != VK_SUCCESS) return false;
@@ -1027,11 +1027,11 @@ bool ui_update_texture(uint32_t texture_id, void* data){
     return true;
 }
 
-bool ui_destroy_texture(uint32_t texture_id) {
+bool dd_destroy_texture(uint32_t texture_id) {
     if (texture_id == (uint32_t)-1) return false;
     if (texture_id >= uITexturePool.count) return false;
 
-    UITexture* texture = &uITexturePool.items[texture_id];
+    DDTexture* texture = &uITexturePool.items[texture_id];
     if (!texture->used) return false;
 
     if (texture->view != VK_NULL_HANDLE) {
@@ -1050,7 +1050,7 @@ bool ui_destroy_texture(uint32_t texture_id) {
     }
 
     VkDescriptorImageInfo nullImageInfo = {
-        .sampler     = ui_samplerNearest,
+        .sampler     = dd_samplerNearest,
         .imageView   = imagesNullTextureView,
         .imageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
     };
@@ -1076,9 +1076,9 @@ bool ui_destroy_texture(uint32_t texture_id) {
     return true;
 }
 
-void ui_scissor(float x, float y, float w, float h){
-    ui_cmds_push(&drawCommands, ((DrawCommand){
-        .type = UI_DRAW_CMD_SCISSOR,
+void dd_scissor(float x, float y, float w, float h){
+    dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_SCISSOR,
         .as.scissor = (ScissorDrawCommand){
             .offset.x = x,
             .offset.y = y,
@@ -1095,36 +1095,36 @@ typedef struct{
     void* mapped;
     VkDescriptorSet descriptorSet;
     size_t size;
-} UIBuffer;
+} DDBuffer;
 
 typedef struct{
-    UIBuffer* items;
+    DDBuffer* items;
     size_t count;
     size_t capacity;
     size_t used;
     size_t item_size;
-} UIBufferPool;
+} DDBufferPool;
 
-UIBuffer* UIBufferPool_get_avaliable(UIBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
+DDBuffer* DDBufferPool_get_avaliable(DDBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
     if(pool->used < pool->count) return &pool->items[pool->used++];
     da_reserve(pool, pool->count + 1);
-    UIBuffer* out = &pool->items[pool->count++];
+    DDBuffer* out = &pool->items[pool->count++];
 
     //initalization
     VkDeviceSize bufferSize = pool->item_size;
     if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&out->buffer,&out->memory)) return false;
     if(vkMapMemory(device, out->memory, 0, bufferSize, 0, &out->mapped) != VK_SUCCESS) return false;
-    if(!ui_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, rectDescriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
+    if(!dd_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, rectDescriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
     out->size = bufferSize;
 
     return out;
 }
 
-void UIBufferPool_reset(UIBufferPool* pool){
+void DDBufferPool_reset(DDBufferPool* pool){
     pool->used = 0;
 }
 
-static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, RectDrawCommand* rects_ptr, size_t rects_count){
+static void dd_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, RectDrawCommand* rects_ptr, size_t rects_count){
     assert(rects_count <= MAX_RECT_COUNT);
     assert(mapped && descriptorSet && "Provide those");
 
@@ -1152,7 +1152,7 @@ static void ui_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screen
     vkCmdEndRendering(cmd);
 }
 
-static void ui_draw_text(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, TextDrawCommand* text_ptr, size_t text_count){
+static void dd_draw_text(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, TextDrawCommand* text_ptr, size_t text_count){
     assert(text_count <= MAX_TEXT_COUNT);
     assert(textImageDescriptorSet && "Initialize this");
     assert(mapped && descriptorSet && "Provide those");
@@ -1181,7 +1181,7 @@ static void ui_draw_text(VkCommandBuffer cmd, size_t screenWidth, size_t screenH
     vkCmdEndRendering(cmd);
 }
 
-static void ui_draw_images(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, ImageDrawCommand* images_ptr, size_t images_count){
+static void dd_draw_images(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, ImageDrawCommand* images_ptr, size_t images_count){
     assert(images_count <= MAX_IMAGE_COUNT);
     assert(imagesImagesDescriptorSet && "Initialize this");
     assert(mapped && descriptorSet && "Provide those");
@@ -1210,13 +1210,13 @@ static void ui_draw_images(VkCommandBuffer cmd, size_t screenWidth, size_t scree
     vkCmdEndRendering(cmd);
 }
 
-static UIBufferPool tempUIRectBufferPool = {.item_size = sizeof(RectDrawCommand)*MAX_RECT_COUNT};
-static UIBufferPool tempUITextBufferPool = {.item_size = sizeof(TextDrawCommand)*MAX_TEXT_COUNT};
-static UIBufferPool tempUIImageBufferPool = {.item_size = sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT};
+static DDBufferPool tempDDRectBufferPool = {.item_size = sizeof(RectDrawCommand)*MAX_RECT_COUNT};
+static DDBufferPool tempDDTextBufferPool = {.item_size = sizeof(TextDrawCommand)*MAX_TEXT_COUNT};
+static DDBufferPool tempDDImageBufferPool = {.item_size = sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT};
 size_t oldScreenWidth = 0;
 size_t oldScreenHeight = 0;
 
-void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment){
+void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment){
     if (drawCommands.count == 0) return;
 
     if (oldScreenWidth != screenWidth || oldScreenHeight != screenHeight) {
@@ -1234,9 +1234,9 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     }
 
     size_t index = 0;
-    UIBufferPool_reset(&tempUIRectBufferPool);
-    UIBufferPool_reset(&tempUITextBufferPool);
-    UIBufferPool_reset(&tempUIImageBufferPool);
+    DDBufferPool_reset(&tempDDRectBufferPool);
+    DDBufferPool_reset(&tempDDTextBufferPool);
+    DDBufferPool_reset(&tempDDImageBufferPool);
 
     VkRect2D scissor_default = {
         .offset.x = 0,
@@ -1252,17 +1252,17 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     void* ptr = drawCommands.cmds.buff;
 
     while (index < drawCommands.count) {
-        UiDrawCmdType type = UI_DRAW_CMD_NONE;
+        UiDrawCmdType type = DD_DRAW_CMD_NONE;
 
         size_t n = 0;
         size_t to_push = 0;
 
         while (index < drawCommands.count) {
             UiDrawCmdType cur_type = drawCommands.items[index];
-            if (type == UI_DRAW_CMD_NONE) type = cur_type;
+            if (type == DD_DRAW_CMD_NONE) type = cur_type;
             else if (type != cur_type) break;
 
-            if(type == UI_DRAW_CMD_SCISSOR) {
+            if(type == DD_DRAW_CMD_SCISSOR) {
                 ScissorDrawCommand* cur_as_scissor = (ScissorDrawCommand*)ptr;
                 if(cur_as_scissor->size.x == 0 && cur_as_scissor->size.y == 0){
                     new_scissor = scissor_default;
@@ -1277,39 +1277,39 @@ void ui_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
                 scissor_changed = true;
             }
-            else if(type == UI_DRAW_CMD_NONE) assert(false && "Unreachable NONE");
-            else if(type == UI_DRAW_CMDS_COUNT) assert(false && "Unreachable COUNT");
+            else if(type == DD_DRAW_CMD_NONE) assert(false && "Unreachable NONE");
+            else if(type == DD_DRAW_CMDS_COUNT) assert(false && "Unreachable COUNT");
             n++;
             index++;
 
-            if(type == UI_DRAW_CMD_SCISSOR) to_push += sizeof(ScissorDrawCommand);
-            else if(type == UI_DRAW_CMD_RECT) to_push += sizeof(RectDrawCommand);
-            else if(type == UI_DRAW_CMD_TEXT) to_push += sizeof(TextDrawCommand);
-            else if(type == UI_DRAW_CMD_IMAGE) to_push += sizeof(ImageDrawCommand);
+            if(type == DD_DRAW_CMD_SCISSOR) to_push += sizeof(ScissorDrawCommand);
+            else if(type == DD_DRAW_CMD_RECT) to_push += sizeof(RectDrawCommand);
+            else if(type == DD_DRAW_CMD_TEXT) to_push += sizeof(TextDrawCommand);
+            else if(type == DD_DRAW_CMD_IMAGE) to_push += sizeof(ImageDrawCommand);
             else assert(false && "Unreachable TYPE");
 
-            if(type == UI_DRAW_CMD_RECT && n >= MAX_RECT_COUNT) break;
-            else if(type == UI_DRAW_CMD_TEXT && n >= MAX_TEXT_COUNT) break;
-            else if(type == UI_DRAW_CMD_IMAGE && n >= MAX_IMAGE_COUNT) break;
+            if(type == DD_DRAW_CMD_RECT && n >= MAX_RECT_COUNT) break;
+            else if(type == DD_DRAW_CMD_TEXT && n >= MAX_TEXT_COUNT) break;
+            else if(type == DD_DRAW_CMD_IMAGE && n >= MAX_IMAGE_COUNT) break;
         }
 
         if(!(scissor.extent.width == 0 || scissor.extent.height == 0)) {
             //drawing
-            if (type == UI_DRAW_CMD_RECT) {
+            if (type == DD_DRAW_CMD_RECT) {
                 assert(n <= sizeof(RectDrawCommand)*MAX_RECT_COUNT);
-                UIBuffer* buff = UIBufferPool_get_avaliable(&tempUIRectBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDRectBufferPool, uiDevice, uiDescriptorPool);
                 assert(buff->size == sizeof(RectDrawCommand)*MAX_RECT_COUNT);
-                ui_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (RectDrawCommand*)ptr, n);
-            }else if(type == UI_DRAW_CMD_TEXT){
+                dd_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (RectDrawCommand*)ptr, n);
+            }else if(type == DD_DRAW_CMD_TEXT){
                 assert(n <= sizeof(TextDrawCommand)*MAX_RECT_COUNT);
-                UIBuffer* buff = UIBufferPool_get_avaliable(&tempUITextBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDTextBufferPool, uiDevice, uiDescriptorPool);
                 assert(buff->size == sizeof(TextDrawCommand)*MAX_TEXT_COUNT);
-                ui_draw_text(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (TextDrawCommand*)ptr, n);
-            }else if(type == UI_DRAW_CMD_IMAGE){
+                dd_draw_text(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (TextDrawCommand*)ptr, n);
+            }else if(type == DD_DRAW_CMD_IMAGE){
                 assert(n <= sizeof(ImageDrawCommand)*MAX_RECT_COUNT);
-                UIBuffer* buff = UIBufferPool_get_avaliable(&tempUIImageBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDImageBufferPool, uiDevice, uiDescriptorPool);
                 assert(buff->size == sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT);
-                ui_draw_images(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (ImageDrawCommand*)ptr, n);
+                dd_draw_images(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (ImageDrawCommand*)ptr, n);
             }
         }
         

@@ -24,7 +24,7 @@ const char* vulkanSDKPathLIB;
 const char* vulkanSDKPathINC;
 
 #define PLATFORM_COMPILER_ARGS vulkanSDKPathINC, "-Wno-deprecated-declarations", "-Wno-initializer-overrides", "-IC:/ffmpeg/include", "-IC:/freetype/include",
-#define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshell32", \
+#define PLATFORM_LINKER_FLAGS vulkanSDKPathLIB, "-lvulkan-1", "-lkernel32", "-luser32", "-lgdi32", "-lshell32", "-lwinmm", \
                               "-lshaderc_shared", "-lshaderc_util", "-lglslang", \
                               "-lSPIRV", "-lSPIRV-Tools", "-lSPIRV-Tools-opt", \
                               "-Wno-deprecated-declarations", "-LC:/ffmpeg/lib", "-LC:/freetype/lib",

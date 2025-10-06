@@ -1,4 +1,5 @@
 #include "MinWin.h"
+#include <mmsystem.h>
 #include <stdbool.h>
 #include <malloc.h>
 #include <stdint.h>
@@ -14,6 +15,7 @@ static bool window_open = false;
 static bool error = false;
 
 bool platform_still_running(){
+    if(!window_open) timeEndPeriod(1);
     return window_open;
 }
 
@@ -203,6 +205,8 @@ void platform_create_window(const char* title, size_t width, size_t height){
     window_open = true;
 
     platform_fill_keycode_lookup_table();
+
+    timeBeginPeriod(1);
 }
 
 MSG msg;

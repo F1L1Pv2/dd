@@ -3,7 +3,7 @@
 #include "engine/vulkan_simple.h"
 #include "thirdparty/stb_image.h"
 
-#include "ui.h"
+#include "dd.h"
 #include <math.h>
 #include <string.h>
 
@@ -26,8 +26,8 @@ int main(){
         "vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0),vec3(0.0, 1.0, 0.0),vec3(0.0, 0.0, 1.0));"
         "layout(location = 0) out vec3 color;\n"
         "void main() {\n"
-        "   gl_Position = vec4(inPosition,0.0f,1.0f); \n"
         "   color = colors[gl_VertexIndex]; \n"
+        "   gl_Position = vec4(inPosition,0.0f,1.0f); \n"
         "}";
 
     if(!vkCompileShader(device, vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return 1;
@@ -89,7 +89,7 @@ int main(){
         vkUnmapMemory(device, vertexBufferMemory);
     }
 
-    if(!ui_init(device, swapchainImageFormat, descriptorPool)) return 1;
+    if(!dd_init(device, swapchainImageFormat, descriptorPool)) return 1;
 
     uint32_t image_id;
     uint32_t image2_id;
@@ -102,13 +102,13 @@ int main(){
             return 1;
         }
         
-        image_id = ui_create_texture(w,h);
+        image_id = dd_create_texture(w,h);
         if(image_id == -1) {
             fprintf(stderr, "Couldn't create texture!\n");
             return 1;
         }
 
-        ui_update_texture(image_id, data);
+        dd_update_texture(image_id, data);
         
         stbi_image_free(data);
     }
@@ -121,13 +121,13 @@ int main(){
             return 1;
         }
         
-        image2_id = ui_create_texture(w,h);
+        image2_id = dd_create_texture(w,h);
         if(image_id == -1) {
             fprintf(stderr, "Couldn't create texture!\n");
             return 1;
         }
 
-        ui_update_texture(image2_id, data);
+        dd_update_texture(image2_id, data);
         
         stbi_image_free(data);
     }
@@ -156,7 +156,7 @@ int main(){
         time += dt;
         counter += dt;
 
-        ui_begin(
+        dd_begin(
             input.mouse_x, input.mouse_y,
             input.keys[KEY_MOUSE_LEFT].isDown,
             input.keys[KEY_MOUSE_LEFT].justPressed,
@@ -181,44 +181,44 @@ int main(){
             counter = 0;
         }
 
-        ui_scissor(0,0,swapchainExtent.width*(cos(time)/2+0.5), swapchainExtent.height*(sin(time)/2+0.5));
+        dd_scissor(0,0,swapchainExtent.width*(cos(time)/2+0.5), swapchainExtent.height*(sin(time)/2+0.5));
         size_t w = swapchainExtent.height;
-        ui_image(using ? image2_id : 69,swapchainExtent.width/2 - w/2,swapchainExtent.height/2 - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
+        dd_image(using ? image2_id : 69,swapchainExtent.width/2 - w/2,swapchainExtent.height/2 - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
 
-        ui_scissor(0,0,0,0);
+        dd_scissor(0,0,0,0);
         w = swapchainExtent.height/2;
-        ui_image(image_id,swapchainExtent.width/2 - sin(time) * ((sin(time)/2+0.5)*200) - w/2,swapchainExtent.height/2 - cos(time) * ((sin(time)/2+0.5)*200) - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
+        dd_image(image_id,swapchainExtent.width/2 - sin(time) * ((sin(time)/2+0.5)*200) - w/2,swapchainExtent.height/2 - cos(time) * ((sin(time)/2+0.5)*200) - w/2,w,w, 0,0, 1, 1, 0xFFFFFFFF);
 
-        ui_scissor(0,swapchainExtent.height/2-swapchainExtent.height/4,swapchainExtent.width, swapchainExtent.height/2);
+        dd_scissor(0,swapchainExtent.height/2-swapchainExtent.height/4,swapchainExtent.width, swapchainExtent.height/2);
 
-        ui_rect(swapchainExtent.width/2 - sin(time) * 200 - 100,swapchainExtent.height/2 - 100,200,200, 0xFFFF0000);
+        dd_rect(swapchainExtent.width/2 - sin(time) * 200 - 100,swapchainExtent.height/2 - 100,200,200, 0xFFFF0000);
 
-        ui_rect(swapchainExtent.width/2 - 100,swapchainExtent.height/2 - sin(time) * 200 - 100,200,200, 0xFF00FF00);
+        dd_rect(swapchainExtent.width/2 - 100,swapchainExtent.height/2 - sin(time) * 200 - 100,200,200, 0xFF00FF00);
 
-        ui_scissor(0,0,swapchainExtent.width/2, swapchainExtent.height);
+        dd_scissor(0,0,swapchainExtent.width/2, swapchainExtent.height);
 
-        ui_rect(swapchainExtent.width/2 + cos(time) * 200 - 100,swapchainExtent.height/2 + sin(time) * 200 - 100,200,200, 0xFF0000FF);
+        dd_rect(swapchainExtent.width/2 + cos(time) * 200 - 100,swapchainExtent.height/2 + sin(time) * 200 - 100,200,200, 0xFF0000FF);
 
-        ui_scissor(swapchainExtent.width/2,0,swapchainExtent.width/2, swapchainExtent.height);
+        dd_scissor(swapchainExtent.width/2,0,swapchainExtent.width/2, swapchainExtent.height);
 
-        ui_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
+        dd_rect(swapchainExtent.width/2 + sin(time) * 200 - 100,swapchainExtent.height/2 + cos(time) * 200 - 100,200,200, 0xFFFFFF00);
 
-        ui_scissor(0,0,0,0);
+        dd_scissor(0,0,0,0);
 
         {
             const char* text = "Hello Baller!\nF1L1P Here!";
             float size = swapchainExtent.height/20 * (sin(time)/2+0.5)*2; 
-            ui_text(text, swapchainExtent.width/2 - ui_text_measure(text, size)/2, swapchainExtent.height/2, size, 0xFFFFFFFF);
+            dd_text(text, swapchainExtent.width/2 - dd_text_measure(text, size)/2, swapchainExtent.height/2, size, 0xFFFFFFFF);
         }
 
         {
             char text[256];
             snprintf(text, sizeof(text), "time: %f\ndt: %f", time, dt);
             float size = swapchainExtent.height/15; 
-            ui_text(text, 0, 0, size, 0xFFFFFFFF);
+            dd_text(text, 0, 0, size, 0xFFFFFFFF);
         }
 
-        ui_end();
+        dd_end();
 
         vkWaitForFences(device, 1, &renderingFence, VK_TRUE, UINT64_MAX);
         vkResetFences(device, 1, &renderingFence);
@@ -253,7 +253,7 @@ int main(){
 
         vkCmdEndRendering(cmd);
 
-        ui_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
+        dd_draw(cmd, swapchainExtent.width, swapchainExtent.height, swapchainImageViews.items[imageIndex]);
 
         vkCmdTransitionImage(cmd, swapchainImages.items[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
