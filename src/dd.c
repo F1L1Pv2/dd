@@ -132,6 +132,13 @@ typedef struct{
     uint32_t _pad2;
 } RotatedRectDrawCommand;
 
+typedef struct{
+    vec2 position;
+    float radius;
+    uint32_t _pad0;
+    vec4 albedo;
+} CircleDrawCommand;
+
 typedef struct {
     vec2 position;
     vec2 scale;
@@ -158,6 +165,7 @@ typedef enum {
     DD_DRAW_CMD_NONE = 0,
     DD_DRAW_CMD_RECT,
     DD_DRAW_CMD_ROTATED_RECT,
+    DD_DRAW_CMD_CIRCLE,
     DD_DRAW_CMD_SCISSOR,
     DD_DRAW_CMD_TEXT,
     DD_DRAW_CMD_IMAGE,
@@ -169,6 +177,7 @@ typedef struct{
     union{
         RectDrawCommand rect;
         RotatedRectDrawCommand rotated_rect;
+        CircleDrawCommand circle;
         ScissorDrawCommand scissor;
         TextDrawCommand text;
         ImageDrawCommand image;
@@ -509,6 +518,113 @@ static bool dd_init_rotated_rects(VkDevice device, VkFormat outFormat, VkDescrip
         .pushConstantsSize = sizeof(pushConstants),
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &rotatedRectDescriptorSetLayout,
+    )) return false;
+
+    return true;
+}
+
+#define MAX_CIRCLE_COUNT 128
+static VkPipeline circlePipeline;
+static VkPipelineLayout circlePipelineLayout;
+static VkDescriptorSetLayout circleDescriptorSetLayout = {0};
+
+static bool dd_init_circles(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+    //TODO use precompiled shaders
+    VkShaderModule vertexShader;
+    const char* vertexShaderSrc =
+            "#version 450\n"
+            "#extension GL_EXT_scalar_block_layout : require\n"
+            "#extension GL_EXT_nonuniform_qualifier : require\n"
+            "struct CircleDrawCommand {\n"
+            "    vec2 position;\n"
+            "    float radius;\n"
+            "    uint _pad0;\n"
+            "    vec4 albedo;\n"
+            "};\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer CircleDrawBuffer {\n"
+            "    CircleDrawCommand commands[];\n"
+            "};\n"
+            "layout(push_constant) uniform Constants {\n"
+            "    mat4 projView;\n"
+            "} pcs;\n"
+            "layout(location = 0) out vec2 LocalCoord;\n"
+            "layout(location = 1) out flat uint InstanceIndex;\n"
+            "void main() {\n"
+            "    uint b = 1 << (gl_VertexIndex % 6);\n"
+            "    vec2 baseCoord = vec2((0x1C & b) != 0, (0xE & b) != 0);\n"
+            "    vec2 pos = commands[gl_InstanceIndex].position;\n"
+            "    float radius = commands[gl_InstanceIndex].radius;\n"
+            "    mat4 model = mat4(\n"
+            "        vec4(radius*2, 0,       0, 0),\n"
+            "        vec4(0,       radius*2, 0, 0),\n"
+            "        vec4(0,       0,       1, 0),\n"
+            "        vec4(pos.x-radius,   pos.y-radius,   0, 1)\n"
+            "    );\n"
+            "    gl_Position = pcs.projView * model * vec4(baseCoord, 0.0, 1.0);\n"
+            "    LocalCoord = baseCoord * 2.0 - 1.0; // Convert from [0,1] to [-1,1]\n"
+            "    InstanceIndex = gl_InstanceIndex;\n"
+            "}\n";
+
+        if(!vkCompileShader(device, vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return false;
+
+    VkShaderModule fragmentShader;
+    const char* fragmentShaderSrc =
+            "#version 450\n"
+            "#extension GL_EXT_scalar_block_layout : require\n"
+            "#extension GL_EXT_nonuniform_qualifier : require\n"
+            "struct CircleDrawCommand {\n"
+            "    vec2 position;\n"
+            "    float radius;\n"
+            "    uint _pad0;\n"
+            "    vec4 albedo;\n"
+            "};\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer CircleDrawBuffer {\n"
+            "    CircleDrawCommand commands[];\n"
+            "};\n"
+            "layout(push_constant) uniform Constants {\n"
+            "    mat4 projView;\n"
+            "} pcs;\n"
+            "layout(location = 0) out vec4 outColor;\n"
+            "layout(location = 0) in vec2 LocalCoord;\n"
+            "layout(location = 1) in flat uint InstanceIndex;\n"
+            "void main() {\n"
+            "    // Calculate distance from center\n"
+            "    float dist = length(LocalCoord);\n"
+            "    \n"
+            "    // Smooth anti-aliased edge\n"
+            "    float alpha = 1.0 - smoothstep(0.9, 1.0, dist);\n"
+            "    \n"
+            "    // Discard fragments outside the circle\n"
+            "    if (alpha <= 0.0) {\n"
+            "        discard;\n"
+            "    }\n"
+            "    \n"
+            "    vec4 albedo = commands[InstanceIndex].albedo;\n"
+            "    outColor = vec4(albedo.rgb, albedo.a * alpha);\n"
+            "}\n";
+        if(!vkCompileShader(device, fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return false;
+
+    {
+        VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
+        descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorSetLayoutBinding.descriptorCount = 1;
+        descriptorSetLayoutBinding.binding = 0;
+        descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_ALL;
+
+        VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {0};
+        descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorSetLayoutCreateInfo.bindingCount  = 1;
+        descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+
+        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &circleDescriptorSetLayout) != VK_SUCCESS) return false;
+    }
+
+    if(!vkCreateGraphicPipeline(
+        vertexShader, fragmentShader,
+        &circlePipeline, &circlePipelineLayout, outFormat,
+        .pushConstantsSize = sizeof(pushConstants),
+        .descriptorSetLayoutCount = 1,
+        .descriptorSetLayouts = &circleDescriptorSetLayout,
     )) return false;
 
     return true;
@@ -915,6 +1031,7 @@ bool dd_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
     }, NULL, &dd_samplerNearest) != VK_SUCCESS) return false;
 
     if(!dd_init_rects(device, outFormat, descriptorPool)) return false;
+    if(!dd_init_circles(device, outFormat, descriptorPool)) return false;
     if(!dd_init_rotated_rects(device, outFormat, descriptorPool)) return false;
     if(!dd_init_text(device, outFormat, descriptorPool)) return false;
     if(!dd_init_images(device, outFormat, descriptorPool)) return false;
@@ -940,6 +1057,7 @@ static void dd_cmds_push(DrawCommands* drawCommands, DrawCommand drawCommand){
 
     if(drawCommand.type == DD_DRAW_CMD_RECT) da_arena_push(&drawCommandsArena, drawCommand.as.rect);
     else if(drawCommand.type == DD_DRAW_CMD_ROTATED_RECT) da_arena_push(&drawCommandsArena, drawCommand.as.rotated_rect);
+    else if(drawCommand.type == DD_DRAW_CMD_CIRCLE) da_arena_push(&drawCommandsArena, drawCommand.as.circle);
     else if(drawCommand.type == DD_DRAW_CMD_SCISSOR) da_arena_push(&drawCommandsArena, drawCommand.as.scissor);
     else if(drawCommand.type == DD_DRAW_CMD_TEXT) da_arena_push(&drawCommandsArena, drawCommand.as.text);
     else if(drawCommand.type == DD_DRAW_CMD_IMAGE) da_arena_push(&drawCommandsArena, drawCommand.as.image);
@@ -981,6 +1099,23 @@ void dd_rotated_rect(float x, float y, float w, float h, float angle, uint32_t c
                 .w = ((float)(((color) >> 24) & 0xFF) / 255.0f), 
             },
             .angle = angle,
+        },
+    }));
+}
+
+void dd_circle(float x, float y, float radius, uint32_t color){
+    dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_CIRCLE,
+        .as.circle = (CircleDrawCommand){
+            .position.x = x,
+            .position.y = y,
+            .radius = radius,
+            .albedo = {
+                .x = ((float)(((color) >> 16) & 0xFF) / 255.0f),
+                .y = ((float)(((color) >>  8) & 0xFF) / 255.0f),
+                .z = ((float)(((color) >>  0) & 0xFF) / 255.0f),
+                .w = ((float)(((color) >> 24) & 0xFF) / 255.0f), 
+            }
         },
     }));
 }
@@ -1422,6 +1557,34 @@ static void dd_draw_rotated_rects(VkCommandBuffer cmd, size_t screenWidth, size_
     vkCmdEndRendering(cmd);
 }
 
+static void dd_draw_circles(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, CircleDrawCommand* circles_ptr, size_t circles_count){
+    assert(circles_count <= MAX_CIRCLE_COUNT);
+    assert(mapped && descriptorSet && "Provide those");
+
+    memcpy(mapped, circles_ptr, circles_count*sizeof(*circles_ptr));
+
+    vkCmdBeginRenderingEX(cmd,
+        .colorAttachment = colorAttachment,
+        .clearBackground = false,
+        .renderArea = (
+            (VkExtent2D){.width = screenWidth, .height = screenHeight}
+        )
+    );
+
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = screenWidth,
+        .height = screenHeight
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, circlePipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,circlePipelineLayout,0,1,&descriptorSet,0,NULL);
+    vkCmdPushConstants(cmd, circlePipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants), &pushConstants);
+    vkCmdDraw(cmd, 6, circles_count, 0, 0);
+    vkCmdEndRendering(cmd);
+}
+
 static void dd_draw_text(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, TextDrawCommand* text_ptr, size_t text_count){
     assert(text_count <= MAX_TEXT_COUNT);
     assert(textImageDescriptorSet && "Initialize this");
@@ -1482,6 +1645,7 @@ static void dd_draw_images(VkCommandBuffer cmd, size_t screenWidth, size_t scree
 
 static DDBufferPool tempDDRectBufferPool = {.item_size = sizeof(RectDrawCommand)*MAX_RECT_COUNT};
 static DDBufferPool tempDDRotatedRectBufferPool = {.item_size = sizeof(RotatedRectDrawCommand)*MAX_ROTATED_RECT_COUNT};
+static DDBufferPool tempDDCircleBufferPool = {.item_size = sizeof(CircleDrawCommand)*MAX_CIRCLE_COUNT};
 static DDBufferPool tempDDTextBufferPool = {.item_size = sizeof(TextDrawCommand)*MAX_TEXT_COUNT};
 static DDBufferPool tempDDImageBufferPool = {.item_size = sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT};
 size_t oldScreenWidth = 0;
@@ -1507,6 +1671,7 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
     size_t index = 0;
     DDBufferPool_reset(&tempDDRectBufferPool);
     DDBufferPool_reset(&tempDDRotatedRectBufferPool);
+    DDBufferPool_reset(&tempDDCircleBufferPool);
     DDBufferPool_reset(&tempDDTextBufferPool);
     DDBufferPool_reset(&tempDDImageBufferPool);
 
@@ -1557,12 +1722,14 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
             if(type == DD_DRAW_CMD_SCISSOR) to_push += sizeof(ScissorDrawCommand);
             else if(type == DD_DRAW_CMD_RECT) to_push += sizeof(RectDrawCommand);
             else if(type == DD_DRAW_CMD_ROTATED_RECT) to_push += sizeof(RotatedRectDrawCommand);
+            else if(type == DD_DRAW_CMD_CIRCLE) to_push += sizeof(CircleDrawCommand);
             else if(type == DD_DRAW_CMD_TEXT) to_push += sizeof(TextDrawCommand);
             else if(type == DD_DRAW_CMD_IMAGE) to_push += sizeof(ImageDrawCommand);
             else assert(false && "Unreachable TYPE");
 
             if(type == DD_DRAW_CMD_RECT && n >= MAX_RECT_COUNT) break;
             else if(type == DD_DRAW_CMD_ROTATED_RECT && n >= MAX_ROTATED_RECT_COUNT) break;
+            else if(type == DD_DRAW_CMD_CIRCLE && n >= MAX_CIRCLE_COUNT) break;
             else if(type == DD_DRAW_CMD_TEXT && n >= MAX_TEXT_COUNT) break;
             else if(type == DD_DRAW_CMD_IMAGE && n >= MAX_IMAGE_COUNT) break;
         }
@@ -1579,6 +1746,11 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
                 DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDRotatedRectBufferPool, uiDevice, uiDescriptorPool, rotatedRectDescriptorSetLayout);
                 assert(buff->size == sizeof(RotatedRectDrawCommand)*MAX_ROTATED_RECT_COUNT);
                 dd_draw_rotated_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (RotatedRectDrawCommand*)ptr, n);
+            }else if(type == DD_DRAW_CMD_CIRCLE){
+                assert(n <= sizeof(CircleDrawCommand)*MAX_CIRCLE_COUNT);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDCircleBufferPool, uiDevice, uiDescriptorPool, circleDescriptorSetLayout);
+                assert(buff->size == sizeof(CircleDrawCommand)*MAX_CIRCLE_COUNT);
+                dd_draw_circles(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (CircleDrawCommand*)ptr, n);
             }else if(type == DD_DRAW_CMD_TEXT){
                 assert(n <= sizeof(TextDrawCommand)*MAX_RECT_COUNT);
                 DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDTextBufferPool, uiDevice, uiDescriptorPool, textDescriptorSetLayout);

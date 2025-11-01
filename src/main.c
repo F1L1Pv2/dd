@@ -294,7 +294,7 @@ int main(){
 
         for(size_t i = 0; i < sizeof(points)/sizeof(points[0]); i++){
             Point* point = &points[i];
-            dd_rect(point->x-point_radius, point->y-point_radius, point_radius*2, point_radius*2, point->color);
+            dd_circle(point->x, point->y, point_radius, point->color);
             if(selected_point == -1 && input.keys[KEY_MOUSE_LEFT].justPressed && mouseColideCircle(input.mouse_x,input.mouse_y,point->x,point->y,point_radius)) selected_point = i;
         }
 
