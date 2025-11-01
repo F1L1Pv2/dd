@@ -7,6 +7,16 @@
 #include <math.h>
 #include <string.h>
 
+inline bool mouseColideCircle(float mouse_x, float mouse_y, float circle_x, float circle_y, float circle_radius){
+    return fabsf(mouse_x - circle_x) <= circle_radius && fabsf(mouse_y - circle_y) < circle_radius;
+}
+
+typedef struct{
+    float x;
+    float y;
+    uint32_t color;
+} Point;
+
 int main(){
     vulkan_init_with_window("TRIEX NEW!", 640, 480);
 
@@ -146,6 +156,55 @@ int main(){
     double target_frame_time = 1.0 / target_fps;
     bool using = false;
     double counter = 0.0;
+
+    Point points[] = {
+        //quadratic
+        (Point){
+            .x = swapchainExtent.width / 2 - swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2,
+            .color = 0xFFAA00AA,
+        },
+        (Point){
+            .x = swapchainExtent.width / 2 + swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2,
+            .color = 0xFFAAAA00,
+        },
+
+        (Point){
+            .x = swapchainExtent.width / 2 + swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2 + swapchainExtent.height * 0.22,
+            .color = 0xFF00AAAA,
+        },
+
+        //cubic
+        (Point){
+            .x = swapchainExtent.width / 2 - swapchainExtent.width * 0.4,
+            .y = swapchainExtent.height / 2,
+            .color = 0xFFDD00DD,
+        },
+        (Point){
+            .x = swapchainExtent.width / 2 - swapchainExtent.width * 0.4 + swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2,
+            .color = 0xFFDDDD00,
+        },
+
+        (Point){
+            .x = swapchainExtent.width / 2 - swapchainExtent.width * 0.4 + swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2 - swapchainExtent.height * 0.22,
+            .color = 0xFF00DDDD,
+        },
+
+        (Point){
+            .x = swapchainExtent.width / 2 - swapchainExtent.width * 0.4 + swapchainExtent.width * 0.2,
+            .y = swapchainExtent.height / 2 + swapchainExtent.height * 0.22,
+            .color = 0xFFDDAAAA,
+        },
+    };
+
+    static float point_radius = 10;
+
+    size_t selected_point = -1;
+
     while(platform_still_running()){
         platform_window_handle_events();
         if(platform_window_minimized){
@@ -215,6 +274,28 @@ int main(){
             snprintf(text, sizeof(text), "time: %f\ndt: %f", time, dt);
             float size = swapchainExtent.height/15; 
             dd_text(text, 0, 0, size, 0xFFFFFFFF);
+        }
+
+        dd_rotated_rect(swapchainExtent.width/2, swapchainExtent.height/2, 30, 30, time, 0xFFFA1020);
+
+        dd_line(swapchainExtent.width*0.1, 
+                swapchainExtent.height/2, 
+                swapchainExtent.width - swapchainExtent.width*0.2 + cos(time)*swapchainExtent.width*0.1, swapchainExtent.height/2 + sin(time)*swapchainExtent.height*0.1, 1+(sin(time)+1.0)/2*19, 0xFF2480AA);
+
+        dd_bezier_quadratic(points[0].x,points[0].y,points[2].x,points[2].y,points[1].x,points[1].y, 3, 30, 0xFF4422AA);
+
+        dd_bezier_cubic(points[3].x,points[3].y,points[5].x,points[5].y,points[4].x,points[4].y, points[6].x, points[6].y, 3, 30, 0xFFAA2244);
+
+        if(selected_point < sizeof(points)/sizeof(points[0])){
+            points[selected_point].x = input.mouse_x;
+            points[selected_point].y = input.mouse_y;
+            if(input.keys[KEY_MOUSE_LEFT].justReleased) selected_point = -1;
+        }
+
+        for(size_t i = 0; i < sizeof(points)/sizeof(points[0]); i++){
+            Point* point = &points[i];
+            dd_rect(point->x-point_radius, point->y-point_radius, point_radius*2, point_radius*2, point->color);
+            if(selected_point == -1 && input.keys[KEY_MOUSE_LEFT].justPressed && mouseColideCircle(input.mouse_x,input.mouse_y,point->x,point->y,point_radius)) selected_point = i;
         }
 
         dd_end();

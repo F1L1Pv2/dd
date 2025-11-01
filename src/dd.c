@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "thirdparty/stb_image.h"
+#include <math.h>
 
 #ifndef DEBUG
 #define assert(...)
@@ -120,6 +121,17 @@ typedef struct{
     vec4 albedo;
 } RectDrawCommand;
 
+typedef struct{
+    vec2 position;
+    vec2 scale;
+    vec4 albedo;
+    float angle;
+    // Explicit padding to bring stride up to 64 bytes
+    uint32_t _pad0;
+    uint32_t _pad1;
+    uint32_t _pad2;
+} RotatedRectDrawCommand;
+
 typedef struct {
     vec2 position;
     vec2 scale;
@@ -145,6 +157,7 @@ typedef struct {
 typedef enum {
     DD_DRAW_CMD_NONE = 0,
     DD_DRAW_CMD_RECT,
+    DD_DRAW_CMD_ROTATED_RECT,
     DD_DRAW_CMD_SCISSOR,
     DD_DRAW_CMD_TEXT,
     DD_DRAW_CMD_IMAGE,
@@ -155,6 +168,7 @@ typedef struct{
     UiDrawCmdType type;
     union{
         RectDrawCommand rect;
+        RotatedRectDrawCommand rotated_rect;
         ScissorDrawCommand scissor;
         TextDrawCommand text;
         ImageDrawCommand image;
@@ -383,6 +397,118 @@ static bool dd_init_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool 
         .pushConstantsSize = sizeof(pushConstants),
         .descriptorSetLayoutCount = 1,
         .descriptorSetLayouts = &rectDescriptorSetLayout,
+    )) return false;
+
+    return true;
+}
+
+#define MAX_ROTATED_RECT_COUNT 128
+static VkPipeline rotatedRectPipeline;
+static VkPipelineLayout rotatedRectPipelineLayout;
+static VkDescriptorSetLayout rotatedRectDescriptorSetLayout = {0};
+
+static bool dd_init_rotated_rects(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPool){
+    //TODO use precompiled shaders
+    VkShaderModule vertexShader;
+    const char* vertexShaderSrc =
+            "#version 450\n"
+            "#extension GL_EXT_scalar_block_layout : require\n"
+            "#extension GL_EXT_nonuniform_qualifier : require\n"
+            "struct RotatedRectDrawCommand {\n"
+            "    vec2 position;\n"
+            "    vec2 scale;\n"
+            "    vec4 albedo;\n"
+            "    float angle;\n"
+            "    uint _pad0;\n"
+            "    uint _pad1;\n"
+            "    uint _pad2;\n"
+            "};\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer RotatedRectDrawBuffer {\n"
+            "    RotatedRectDrawCommand commands[];\n"
+            "};\n"
+            "layout(push_constant) uniform Constants {\n"
+            "    mat4 projView;\n"
+            "} pcs;\n"
+            "layout(location = 1) out flat uint InstanceIndex;\n"
+            "void main() {\n"
+            "    uint b = 1 << (gl_VertexIndex % 6);\n"
+            "    vec2 baseCoord = vec2((0x1C & b) != 0, (0xE & b) != 0);\n"
+            "    \n"
+            "    RotatedRectDrawCommand cmd = commands[gl_InstanceIndex];\n"
+            "    vec2 pos = cmd.position;\n"
+            "    vec2 scale = cmd.scale;\n"
+            "    float angle = cmd.angle;\n"
+            "    \n"
+            "    // Calculate rotation matrix for counter-clockwise rotation in Vulkan\n"
+            "    float cosA = cos(angle);\n"
+            "    float sinA = sin(angle);\n"
+            "    \n"
+            "    // First scale the coordinates\n"
+            "    vec2 scaledCoord = baseCoord * scale;\n"
+            "    \n"
+            "    // Then rotate the scaled coordinates\n"
+            "    vec2 rotatedCoord = vec2(\n"
+            "        scaledCoord.x * cosA + scaledCoord.y * sinA,\n"
+            "        scaledCoord.x * -sinA + scaledCoord.y * cosA\n"
+            "    );\n"
+            "    \n"
+            "    // Final position (top-left origin)\n"
+            "    vec2 finalPos = pos + rotatedCoord;\n"
+            "    \n"
+            "    gl_Position = pcs.projView * vec4(finalPos, 0.0, 1.0);\n"
+            "    InstanceIndex = gl_InstanceIndex;\n"
+            "}\n";
+
+        if(!vkCompileShader(device, vertexShaderSrc, shaderc_vertex_shader,&vertexShader)) return false;
+
+    VkShaderModule fragmentShader;
+    const char* fragmentShaderSrc =
+            "#version 450\n"
+            "#extension GL_EXT_scalar_block_layout : require\n"
+            "#extension GL_EXT_nonuniform_qualifier : require\n"
+            "struct RotatedRectDrawCommand {\n"
+            "    vec2 position;\n"
+            "    vec2 scale;\n"
+            "    vec4 albedo;\n"
+            "    float angle;\n"
+            "    uint _pad0;\n"
+            "    uint _pad1;\n"
+            "    uint _pad2;\n"
+            "};\n"
+            "layout(set = 0, binding = 0, scalar) readonly buffer RotatedRectDrawBuffer {\n"
+            "    RotatedRectDrawCommand commands[];\n"
+            "};\n"
+            "layout(push_constant) uniform Constants {\n"
+            "    mat4 projView;\n"
+            "} pcs;\n"
+            "layout(location = 0) out vec4 outColor;\n"
+            "layout(location = 1) in flat uint InstanceIndex;\n"
+            "void main() {\n"
+            "    outColor = commands[InstanceIndex].albedo;\n"
+            "}\n";
+        if(!vkCompileShader(device, fragmentShaderSrc, shaderc_fragment_shader,&fragmentShader)) return false;
+
+    {
+        VkDescriptorSetLayoutBinding descriptorSetLayoutBinding = {0};
+        descriptorSetLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorSetLayoutBinding.descriptorCount = 1;
+        descriptorSetLayoutBinding.binding = 0;
+        descriptorSetLayoutBinding.stageFlags = VK_SHADER_STAGE_ALL;
+
+        VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo = {0};
+        descriptorSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorSetLayoutCreateInfo.bindingCount  = 1;
+        descriptorSetLayoutCreateInfo.pBindings = &descriptorSetLayoutBinding;
+
+        if(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCreateInfo, NULL, &rotatedRectDescriptorSetLayout) != VK_SUCCESS) return false;
+    }
+
+    if(!vkCreateGraphicPipeline(
+        vertexShader, fragmentShader,
+        &rotatedRectPipeline, &rotatedRectPipelineLayout, outFormat,
+        .pushConstantsSize = sizeof(pushConstants),
+        .descriptorSetLayoutCount = 1,
+        .descriptorSetLayouts = &rotatedRectDescriptorSetLayout,
     )) return false;
 
     return true;
@@ -789,6 +915,7 @@ bool dd_init(VkDevice device, VkFormat outFormat, VkDescriptorPool descriptorPoo
     }, NULL, &dd_samplerNearest) != VK_SUCCESS) return false;
 
     if(!dd_init_rects(device, outFormat, descriptorPool)) return false;
+    if(!dd_init_rotated_rects(device, outFormat, descriptorPool)) return false;
     if(!dd_init_text(device, outFormat, descriptorPool)) return false;
     if(!dd_init_images(device, outFormat, descriptorPool)) return false;
     uiDescriptorPool = descriptorPool;
@@ -812,6 +939,7 @@ static void dd_cmds_push(DrawCommands* drawCommands, DrawCommand drawCommand){
     assert(drawCommand.type != DD_DRAW_CMD_NONE && drawCommand.type != DD_DRAW_CMDS_COUNT);
 
     if(drawCommand.type == DD_DRAW_CMD_RECT) da_arena_push(&drawCommandsArena, drawCommand.as.rect);
+    else if(drawCommand.type == DD_DRAW_CMD_ROTATED_RECT) da_arena_push(&drawCommandsArena, drawCommand.as.rotated_rect);
     else if(drawCommand.type == DD_DRAW_CMD_SCISSOR) da_arena_push(&drawCommandsArena, drawCommand.as.scissor);
     else if(drawCommand.type == DD_DRAW_CMD_TEXT) da_arena_push(&drawCommandsArena, drawCommand.as.text);
     else if(drawCommand.type == DD_DRAW_CMD_IMAGE) da_arena_push(&drawCommandsArena, drawCommand.as.image);
@@ -836,6 +964,103 @@ void dd_rect(float x, float y, float w, float h, uint32_t color){
             }
         },
     }));
+}
+
+void dd_rotated_rect(float x, float y, float w, float h, float angle, uint32_t color){
+    dd_cmds_push(&drawCommands, ((DrawCommand){
+        .type = DD_DRAW_CMD_ROTATED_RECT,
+        .as.rotated_rect = (RotatedRectDrawCommand){
+            .position.x = x,
+            .position.y = y,
+            .scale.x = w,
+            .scale.y = h,
+            .albedo = {
+                .x = ((float)(((color) >> 16) & 0xFF) / 255.0f),
+                .y = ((float)(((color) >>  8) & 0xFF) / 255.0f),
+                .z = ((float)(((color) >>  0) & 0xFF) / 255.0f),
+                .w = ((float)(((color) >> 24) & 0xFF) / 255.0f), 
+            },
+            .angle = angle,
+        },
+    }));
+}
+
+void dd_line(float x1, float y1, float x2, float y2, float thickness, uint32_t color) {
+    float rx = x2 - x1;
+    float ry = y2 - y1;
+    float mag = sqrtf(rx*rx + ry*ry);
+
+    float angle = atan2f(-ry,rx);
+
+    dd_rotated_rect(x1,y1,mag,thickness,angle,color);
+}
+
+// Cubic Bézier curve
+void dd_bezier_cubic(float x1, float y1, float x2, float y2, 
+              float cx1, float cy1, float cx2, float cy2,
+              float thickness, int segments, uint32_t color) {
+    
+    float t_step = 1.0f / segments;
+    float t = 0.0f;
+    
+    float prev_x = x1;
+    float prev_y = y1;
+    
+    for (int i = 1; i <= segments; i++) {
+        t = i * t_step;
+
+        // Cubic Bézier formula: 
+        // B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+        float u = 1.0f - t;
+        float u2 = u * u;
+        float u3 = u2 * u;
+        float t2 = t * t;
+        float t3 = t2 * t;
+        
+        float x = u3 * x1 + 3 * u2 * t * cx1 + 3 * u * t2 * cx2 + t3 * x2;
+        float y = u3 * y1 + 3 * u2 * t * cy1 + 3 * u * t2 * cy2 + t3 * y2;
+        
+        // Draw line segment
+        dd_line(prev_x, prev_y, x, y, thickness, color);
+        
+        prev_x = x;
+        prev_y = y;
+    }
+}
+
+// Quadratic Bézier curve
+void dd_bezier_quadratic(float x1, float y1, float x2, float y2, 
+                  float cx, float cy, float thickness, int segments, uint32_t color) {
+    
+    float cx1 = x1 + (2.0f / 3.0f) * (cx - x1);
+    float cy1 = y1 + (2.0f / 3.0f) * (cy - y1);
+    float cx2 = x2 + (2.0f / 3.0f) * (cx - x2);
+    float cy2 = y2 + (2.0f / 3.0f) * (cy - y2);
+    
+    float t_step = 1.0f / segments;
+    float t = 0.0f;
+    
+    float prev_x = x1;
+    float prev_y = y1;
+    
+    for (int i = 1; i <= segments; i++) {
+        t = i * t_step;
+        
+        // Quadratic Bézier formula:
+        // B(t) = (1-t)²P₀ + 2(1-t)tP₁ + t²P₂
+        float u = 1.0f - t;
+        float u2 = u * u;
+        float t2 = t * t;
+        
+        float x = u2 * x1 + 2 * u * t * cx + t2 * x2;
+        float y = u2 * y1 + 2 * u * t * cy + t2 * y2;
+        
+        // Draw line segment
+        dd_line(prev_x, prev_y, x, y, thickness, color);
+        
+        prev_x = x;
+        prev_y = y;
+    }
 }
 
 #define TEXT_WIDTH_RATIO (0.5)
@@ -1122,7 +1347,7 @@ typedef struct{
     size_t item_size;
 } DDBufferPool;
 
-DDBuffer* DDBufferPool_get_avaliable(DDBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool){
+DDBuffer* DDBufferPool_get_avaliable(DDBufferPool* pool, VkDevice device, VkDescriptorPool descriptorPool, VkDescriptorSetLayout descriptorSetLayout){
     if(pool->used < pool->count) return &pool->items[pool->used++];
     da_reserve(pool, pool->count + 1);
     DDBuffer* out = &pool->items[pool->count++];
@@ -1131,7 +1356,7 @@ DDBuffer* DDBufferPool_get_avaliable(DDBufferPool* pool, VkDevice device, VkDesc
     VkDeviceSize bufferSize = pool->item_size;
     if(!vkCreateBufferEX(device, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,bufferSize,&out->buffer,&out->memory)) return false;
     if(vkMapMemory(device, out->memory, 0, bufferSize, 0, &out->mapped) != VK_SUCCESS) return false;
-    if(!dd_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, rectDescriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
+    if(!dd_create_buffer_descriptor_set_and_bind_buffer(device, descriptorPool, descriptorSetLayout, &out->descriptorSet, out->buffer, bufferSize)) return false;
     out->size = bufferSize;
 
     return out;
@@ -1166,6 +1391,34 @@ static void dd_draw_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screen
     vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rectPipelineLayout,0,1,&descriptorSet,0,NULL);
     vkCmdPushConstants(cmd, rectPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants), &pushConstants);
     vkCmdDraw(cmd, 6, rects_count, 0, 0);
+    vkCmdEndRendering(cmd);
+}
+
+static void dd_draw_rotated_rects(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkImageView colorAttachment, VkRect2D scissor, void* mapped, VkDescriptorSet descriptorSet, RotatedRectDrawCommand* rotated_rects_ptr, size_t rotated_rects_count){
+    assert(rotated_rects_count <= MAX_ROTATED_RECT_COUNT);
+    assert(mapped && descriptorSet && "Provide those");
+
+    memcpy(mapped, rotated_rects_ptr, rotated_rects_count*sizeof(*rotated_rects_ptr));
+
+    vkCmdBeginRenderingEX(cmd,
+        .colorAttachment = colorAttachment,
+        .clearBackground = false,
+        .renderArea = (
+            (VkExtent2D){.width = screenWidth, .height = screenHeight}
+        )
+    );
+
+    vkCmdSetViewport(cmd, 0, 1, &(VkViewport){
+        .width = screenWidth,
+        .height = screenHeight
+    });
+        
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS, rotatedRectPipeline);
+    vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,rotatedRectPipelineLayout,0,1,&descriptorSet,0,NULL);
+    vkCmdPushConstants(cmd, rotatedRectPipelineLayout, VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants), &pushConstants);
+    vkCmdDraw(cmd, 6, rotated_rects_count, 0, 0);
     vkCmdEndRendering(cmd);
 }
 
@@ -1228,6 +1481,7 @@ static void dd_draw_images(VkCommandBuffer cmd, size_t screenWidth, size_t scree
 }
 
 static DDBufferPool tempDDRectBufferPool = {.item_size = sizeof(RectDrawCommand)*MAX_RECT_COUNT};
+static DDBufferPool tempDDRotatedRectBufferPool = {.item_size = sizeof(RotatedRectDrawCommand)*MAX_ROTATED_RECT_COUNT};
 static DDBufferPool tempDDTextBufferPool = {.item_size = sizeof(TextDrawCommand)*MAX_TEXT_COUNT};
 static DDBufferPool tempDDImageBufferPool = {.item_size = sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT};
 size_t oldScreenWidth = 0;
@@ -1252,6 +1506,7 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
     size_t index = 0;
     DDBufferPool_reset(&tempDDRectBufferPool);
+    DDBufferPool_reset(&tempDDRotatedRectBufferPool);
     DDBufferPool_reset(&tempDDTextBufferPool);
     DDBufferPool_reset(&tempDDImageBufferPool);
 
@@ -1301,11 +1556,13 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
             if(type == DD_DRAW_CMD_SCISSOR) to_push += sizeof(ScissorDrawCommand);
             else if(type == DD_DRAW_CMD_RECT) to_push += sizeof(RectDrawCommand);
+            else if(type == DD_DRAW_CMD_ROTATED_RECT) to_push += sizeof(RotatedRectDrawCommand);
             else if(type == DD_DRAW_CMD_TEXT) to_push += sizeof(TextDrawCommand);
             else if(type == DD_DRAW_CMD_IMAGE) to_push += sizeof(ImageDrawCommand);
             else assert(false && "Unreachable TYPE");
 
             if(type == DD_DRAW_CMD_RECT && n >= MAX_RECT_COUNT) break;
+            else if(type == DD_DRAW_CMD_ROTATED_RECT && n >= MAX_ROTATED_RECT_COUNT) break;
             else if(type == DD_DRAW_CMD_TEXT && n >= MAX_TEXT_COUNT) break;
             else if(type == DD_DRAW_CMD_IMAGE && n >= MAX_IMAGE_COUNT) break;
         }
@@ -1314,17 +1571,22 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
             //drawing
             if (type == DD_DRAW_CMD_RECT) {
                 assert(n <= sizeof(RectDrawCommand)*MAX_RECT_COUNT);
-                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDRectBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDRectBufferPool, uiDevice, uiDescriptorPool, rectDescriptorSetLayout);
                 assert(buff->size == sizeof(RectDrawCommand)*MAX_RECT_COUNT);
                 dd_draw_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (RectDrawCommand*)ptr, n);
+            }else if(type == DD_DRAW_CMD_ROTATED_RECT){
+                assert(n <= sizeof(RotatedRectDrawCommand)*MAX_ROTATED_RECT_COUNT);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDRotatedRectBufferPool, uiDevice, uiDescriptorPool, rotatedRectDescriptorSetLayout);
+                assert(buff->size == sizeof(RotatedRectDrawCommand)*MAX_ROTATED_RECT_COUNT);
+                dd_draw_rotated_rects(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped,buff->descriptorSet, (RotatedRectDrawCommand*)ptr, n);
             }else if(type == DD_DRAW_CMD_TEXT){
                 assert(n <= sizeof(TextDrawCommand)*MAX_RECT_COUNT);
-                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDTextBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDTextBufferPool, uiDevice, uiDescriptorPool, textDescriptorSetLayout);
                 assert(buff->size == sizeof(TextDrawCommand)*MAX_TEXT_COUNT);
                 dd_draw_text(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (TextDrawCommand*)ptr, n);
             }else if(type == DD_DRAW_CMD_IMAGE){
                 assert(n <= sizeof(ImageDrawCommand)*MAX_RECT_COUNT);
-                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDImageBufferPool, uiDevice, uiDescriptorPool);
+                DDBuffer* buff = DDBufferPool_get_avaliable(&tempDDImageBufferPool, uiDevice, uiDescriptorPool, imagesDescriptorSetLayout);
                 assert(buff->size == sizeof(ImageDrawCommand)*MAX_IMAGE_COUNT);
                 dd_draw_images(cmd, screenWidth, screenHeight, colorAttachment, scissor, buff->mapped, buff->descriptorSet, (ImageDrawCommand*)ptr, n);
             }

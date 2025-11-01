@@ -13,6 +13,14 @@ void dd_draw(VkCommandBuffer cmd, size_t screenWidth, size_t screenHeight, VkIma
 
 void dd_rect(float x, float y, float w, float h, uint32_t color);
 
+void dd_rotated_rect(float x, float y, float w, float h, float angle, uint32_t color); // origin is at top left corner
+
+void dd_line(float x1, float y1, float x2, float y2, float thickness, uint32_t color);
+
+void dd_bezier_cubic(float x1, float y1, float x2, float y2, float cx1, float cy1, float cx2, float cy2, float thickness, int segments, uint32_t color);
+
+void dd_bezier_quadratic(float x1, float y1, float x2, float y2, float cx, float cy, float thickness, int segments, uint32_t color);
+
 void dd_text(const char* text, float x, float y, float size, uint32_t color);
 
 float dd_text_measure(const char* text, float size);
